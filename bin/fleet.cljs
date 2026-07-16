@@ -53,6 +53,22 @@
 (defn spit* [f s] (fs/writeFileSync f s))
 (defn load-db [f] (reader/read-string (slurp* f)))
 
+(defn read-key
+  "Resolve a signing key from either --key <pem-file> or --kagi <name>.
+  kagi is the preferred store (OS-Keychain unlock, no interactive prompt;
+  ADR-2606272330). Looks for bin/kagi under CWD or FLEET_ROOT."
+  [{:keys [key kagi]}]
+  (cond
+    key  (slurp* key)
+    kagi (let [root (or (.-FLEET_ROOT js/process.env) (js/process.cwd))
+               bin  (str root "/orgs/kotoba-lang/kagi/bin/kagi")
+               r    (try (cp/execFileSync bin
+                          #js ["get" kagi "--compartment" "personal"]
+                          #js {:encoding "utf8" :timeout 120000})
+                         (catch :default e (die (str "kagi get failed: " e))))]
+           (str/trim-newline r))
+    :else nil))
+
 (defn lock-db!
   "Mutual exclusion for db+ledger+head mutations across concurrent agent
   sessions (fixes last-writer-wins). mkdir is the atomic primitive; stale
@@ -274,14 +290,14 @@
 (defn cmd-pin-advance-signed
   "Signed pin advance (Phase 1): sign -> admission gate -> ledger + db +
   west.yml projection splice. Rejection exits 1 with reasons."
-  [{:keys [db repo new key keys west] :as opts}]
-  (when-not (and db repo new key keys)
-    (die "pin-advance needs --db --repo --new --key <privkey.pem> --keys <fleet-keys.edn>"))
+  [{:keys [db repo new key kagi keys west] :as opts}]
+  (when-not (and db repo new keys (or key kagi))
+    (die "pin-advance needs --db --repo --new (--key PEM|--kagi NAME) --keys <fleet-keys.edn>"))
   (lock-db! db)
   (let [d       (load-db db)
         entity  (or (west/find-repo d repo) (die (str "unknown repo " repo)))
         keyring (reader/read-string (slurp* keys))
-        pem     (slurp* key)
+        pem     (read-key opts)
         signer  (str "ed25519:" (pubkey-hex-of-priv pem))
         ledgerf (str/replace db #"\.edn$" ".ledger.edn")
         ledger  (load-ledger ledgerf)
