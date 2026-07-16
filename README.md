@@ -54,6 +54,18 @@ nbb --classpath src:test run-tests.cljs
   canvas-ledger.edn と同型）。admission gate（署名・単調 sequence・上流到達性）
   は Phase 1。
 
+## Phase 2 — identity + governed land-back
+
+- `fleet keygen` は did:key も出力（`fleet.did`、base58btc/multicodec）。
+- `fleet grant` — owner root から agent への委譲鎖（attenuation・expiry・
+  linkage を `fleet.grant/verify-chain` が検証。cacao-clj と同意味論、
+  CAIP-122 wire format 化は follow-up）。
+- `fleet propose` — grant 保持を検証して land 提案を ledger に記録。
+- `fleet govern` — quorum pre-check（不足なら merge せず abort）→ サーバ側
+  マージ → k-of-n Governor 署名の canonical pin advance（`admit-quorum`:
+  quorum / sequence / parent / reachability / value-advance）。
+- 残: workspace manager（GC / checkpoint / best-of-N）と鍵の 1Password 移設。
+
 ## Naming
 
 `kotoba-lang/kotoba-fleet`（lease + governor-drain + fleet-view の agent

@@ -20,6 +20,8 @@
             [cljs.reader :as reader]
             [clojure.string :as str]
             [fleet.db :as db]
+            [fleet.did :as did]
+            [fleet.grant :as grant]
             [fleet.pin :as pin]
             [fleet.sync :as sync]
             [fleet.west :as west]
@@ -205,7 +207,8 @@
         raw (-> (.-publicKey kp) (.subarray (- (.-length (.-publicKey kp)) 32)) (.toString "hex"))]
     (fs/writeFileSync out pem #js {:mode 0600})
     (println "private key:" out "(mode 0600 — keep out of git; see secrets-location-map)")
-    (println "signer id  : " (str "ed25519:" raw))))
+    (println "signer id  : " (str "ed25519:" raw))
+    (println "did        : " (did/pubkey-hex->did raw))))
 
 (defn gh-reachable?
   "Server-side reachability: pin must be identical|behind vs default branch.
@@ -241,9 +244,11 @@
     (mapv reader/read-string (remove str/blank? (str/split (slurp* f) #"\n")))
     []))
 
-(defn last-signed [ledger repo]
+(defn last-signed
+  "Last pin event (single-key or quorum) for repo — the head of its record chain."
+  [ledger repo]
   (->> ledger
-       (filter #(and (= :pin/advance-signed (:event/type %))
+       (filter #(and (#{:pin/advance-signed :pin/advance-quorum} (:event/type %))
                      (= repo (get-in % [:pin/record :pin/name]))))
        last))
 
@@ -261,8 +266,10 @@
         ledgerf (str/replace db #"\.edn$" ".ledger.edn")
         ledger  (load-ledger ledgerf)
         cur-ev  (last-signed ledger repo)
-        current (when cur-ev {:record (:pin/record cur-ev)
-                              :signature (:pin/signature cur-ev)})
+        current (when cur-ev
+                  {:record (:pin/record cur-ev)
+                   :signature (or (:pin/signature cur-ev)
+                                  (:signature (first (sort-by :signer (:pin/signatures cur-ev)))))})
         record  (pin/make-record
                  {:repo repo :value new
                   :sequence (inc (get-in current [:record :pin/sequence] 0))
@@ -322,10 +329,140 @@
     (println "fleet-db updated. Reflect to west.yml via the existing verified path:")
     (println "  nbb scripts/gen-west-manifest.cljs --entry" repo)))
 
+;; ---------------------------------------------------------------------------
+;; Phase 2: grants, propose, governed land-back
+
+(defn- did-of-priv [pem] (did/pubkey-hex->did (pubkey-hex-of-priv pem)))
+
+(defn- event->current [ev]
+  (when ev
+    {:record (:pin/record ev)
+     :signature (or (:pin/signature ev)
+                    (:signature (first (sort-by :signer (:pin/signatures ev)))))}))
+
+(defn- last-pin-event [ledger repo]
+  (->> ledger
+       (filter #(and (#{:pin/advance-signed :pin/advance-quorum} (:event/type %))
+                     (= repo (get-in % [:pin/record :pin/name]))))
+       last))
+
+(defn cmd-grant [{:keys [issuer-key aud resources exp chain out]}]
+  (when-not (and issuer-key aud resources out)
+    (die "grant needs --issuer-key --aud <did> --resources a,b --out [--exp iso] [--chain in.edn]"))
+  (let [pem  (slurp* issuer-key)
+        prev (if (and chain (fs/existsSync chain)) (reader/read-string (slurp* chain)) [])
+        link {:grant/iss (did-of-priv pem) :grant/aud aud
+              :grant/resources (set (str/split resources #",")) :grant/exp exp}
+        link (assoc link :grant/sig (node-sign pem (grant/link-canonical link)))]
+    (spit* out (pr-str (conj prev link)))
+    (println "chain:" out "links:" (inc (count prev)) "holder:" aud)))
+
+(defn cmd-propose [{:keys [db keys repo branch key chain]}]
+  (when-not (and db keys repo branch key chain)
+    (die "propose needs --db --keys --repo --branch --key agent.pem --chain chain.edn"))
+  (let [d       (load-db db)
+        entity  (or (west/find-repo d repo) (die (str "unknown repo " repo)))
+        cfg     (reader/read-string (slurp* keys))
+        ch      (reader/read-string (slurp* chain))
+        v       (grant/verify-chain ch {:roots (:roots cfg) :verify-fn node-verify
+                                        :now (.toISOString (js/Date.))})
+        agent-did (did-of-priv (slurp* key))
+        resource  (str "land:" (:repo/path entity))]
+    (cond
+      (not (:ok? v)) (do (js/console.error "REJECTED: grant chain invalid" (pr-str (:reasons v)))
+                         (js/process.exit 1))
+      (not= agent-did (:holder v)) (do (js/console.error "REJECTED: key is not the chain holder")
+                                       (js/process.exit 1))
+      (not (grant/holds? v resource)) (do (js/console.error "REJECTED: grant does not cover" resource)
+                                          (js/process.exit 1))
+      :else
+      (p/let [r (sh ["gh" "api" (str "repos/" (org-repo-of d entity) "/commits/" branch)
+                     "--jq" ".sha"])]
+        (let [head (str/trim (:out r))
+              ledgerf (str/replace db #"\.edn$" ".ledger.edn")
+              ledger (load-ledger ledgerf)
+              ev {:event/seq (db/next-seq ledger) :event/type :land/proposal
+                  :event/at (.toISOString (js/Date.)) :event/actor agent-did
+                  :repo/name repo :land/branch branch :land/head head
+                  :land/grant-holder (:holder v)}]
+          (fs/appendFileSync ledgerf (str (pr-str ev) "\n"))
+          (println "proposal recorded: seq" (:event/seq ev) repo branch "@" (subs head 0 12)))))))
+
+(defn cmd-govern
+  "Governed land-back: server-side merge of an agent branch into the child
+  repo's default branch, then a quorum-signed canonical pin advance."
+  [{:keys [db keys repo branch gov-keys west]}]
+  (when-not (and db keys repo branch gov-keys)
+    (die "govern needs --db --keys --repo --branch --gov-keys k1.pem,k2.pem [--west]"))
+  (let [d       (load-db db)
+        entity  (or (west/find-repo d repo) (die (str "unknown repo " repo)))
+        cfg     (reader/read-string (slurp* keys))
+        policy  (:canonical cfg)
+        pems    (mapv slurp* (str/split gov-keys #","))
+        orl     (org-repo-of d entity)
+        ledgerf (str/replace db #"\.edn$" ".ledger.edn")
+        ledger  (load-ledger ledgerf)
+        current (event->current (last-pin-event ledger repo))
+        ;; pre-check BEFORE the merge side effect: enough eligible governor
+        ;; keys in hand? (full signature gate still runs after the merge)
+        gov-dids (set (map did-of-priv pems))
+        eligible (count (filter (:allow policy) gov-dids))]
+    (when (< eligible (:threshold policy))
+      (js/console.error "REJECTED (pre-merge): quorum not satisfiable —"
+                        eligible "eligible governor key(s), threshold"
+                        (:threshold policy) "— no merge performed")
+      (js/process.exit 1))
+    (p/let [m (sh ["gh" "api" (str "repos/" orl "/merges") "-f" "base=main"
+                   "-f" (str "head=" branch)
+                   "-f" (str "commit_message=fleet govern: land " branch " (quorum canonical advance)")
+                   "--jq" ".sha"])]
+      (when-not (:ok? m)
+        (js/console.error "server-side merge failed:" (str/trim (:err m)))
+        (js/process.exit 1))
+      (let [new-sha (str/trim (:out m))
+            record  (pin/make-record
+                     {:repo repo :value new-sha
+                      :sequence (inc (get-in current [:record :pin/sequence] 0))
+                      :parent (when current
+                                (pin/record-hash node-sha256 (:record current)
+                                                 (:signature current)))})
+            payload (pin/canonical-str record)
+            sigs    (mapv (fn [pem] {:signer (did-of-priv pem)
+                                     :signature (node-sign pem payload)}) pems)]
+        (p/let [reach (gh-reachable? orl new-sha)
+                vadv  (gh-value-advance? orl (get-in current [:record :pin/value]) new-sha)]
+          (let [verdict (grant/admit-quorum
+                         {:record record :signatures sigs}
+                         {:policy policy :current current :verify-fn node-verify
+                          :hash-fn node-sha256 :reachable? reach :value-advance? vadv})]
+            (if (= :reject (:verdict verdict))
+              (do (js/console.error "REJECTED:" (pr-str (:reasons verdict))
+                                    "valid-signers:" (pr-str (:valid-signers verdict)))
+                  (js/process.exit 1))
+              (let [ev {:event/seq (db/next-seq ledger) :event/type :pin/advance-quorum
+                        :event/at (.toISOString (js/Date.))
+                        :event/verdict (:verdict verdict)
+                        :pin/record record :pin/signatures (vec (sort-by :signer sigs))}
+                    d' (db/apply-pin-advance d {:repo/name repo :pin/new new-sha})]
+                (fs/appendFileSync ledgerf (str (pr-str ev) "\n"))
+                (spit* db (pr-str d'))
+                (when west
+                  (let [w (west/parse (slurp* west))
+                        w' (update w :fleet/repos
+                                   (fn [rs] (mapv #(if (= (:repo/name %) repo)
+                                                     (assoc % :repo/revision new-sha) %) rs)))]
+                    (spit* west (west/emit w'))))
+                (println (name (:verdict verdict)) "— landed" branch "->" (subs new-sha 0 12)
+                         "quorum" (count (:valid-signers verdict)) "/"
+                         (:threshold policy) "seq" (:pin/sequence record))))))))))
+
 (def commands
   {"import" cmd-import "check" cmd-check "stats" cmd-stats
    "list" cmd-list "sync" cmd-sync
    "keygen" cmd-keygen
+   "grant" cmd-grant
+   "propose" cmd-propose
+   "govern" cmd-govern
    "pin-advance" cmd-pin-advance-signed
    "pin-advance-unsigned" cmd-pin-advance})
 

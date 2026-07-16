@@ -2,6 +2,8 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [fleet.db :as db]
+            [fleet.did :as did]
+            [fleet.grant :as grant]
             [fleet.pin :as pin]
             [fleet.sync :as sync]
             [fleet.west :as west]))
@@ -199,3 +201,79 @@
              (:verdict (pin/admit (proposal "agentA" back) (ctx g-cur :value-advance? :unknown))))))
     (testing "genesis ignores value-advance"
       (is (= :accept (:verdict (pin/admit g-prop (ctx nil :value-advance? true))))))))
+
+;; ---------------------------------------------------------------------------
+;; Phase 2: did:key, delegation chains, quorum canonical advance
+
+(deftest did-key-roundtrip
+  (let [hex "7414dd47730947339b50c97b85021f22beee825dacc9e5c30b8413973215c5dd"
+        d (did/pubkey-hex->did hex)]
+    (is (str/starts-with? d "did:key:z6Mk"))
+    (is (= hex (did/did->pubkey-hex d)))
+    (is (thrown? #?(:clj Exception :cljs js/Error) (did/did->pubkey-hex "did:web:x")))))
+
+;; fake link signatures: reuse fake-sign over link payload keyed by iss pubkey.
+;; dids must decode, so build them from real-shaped hex pubkeys.
+(def ^:private hexA (apply str (repeat 32 "aa")))
+(def ^:private hexB (apply str (repeat 32 "bb")))
+(def ^:private hexC (apply str (repeat 32 "cc")))
+(def ^:private didA (did/pubkey-hex->did hexA))
+(def ^:private didB (did/pubkey-hex->did hexB))
+(def ^:private didC (did/pubkey-hex->did hexC))
+
+(defn- mk-link [iss aud resources exp]
+  (let [l {:grant/iss iss :grant/aud aud :grant/resources resources :grant/exp exp}]
+    (assoc l :grant/sig (fake-sign (did/did->pubkey-hex iss) (grant/link-canonical l)))))
+
+(deftest delegation-chain
+  (let [gctx {:roots #{didA} :verify-fn fake-verify :now "2026-07-16T00:00:00Z"}
+        root->b (mk-link didA didB #{"pin:orgs/kotoba-lang/*" "land:orgs/kotoba-lang/*"} "2026-08-01T00:00:00Z")
+        b->c    (mk-link didB didC #{"land:orgs/kotoba-lang/kotoba-fleet-vcs"} "2026-07-20T00:00:00Z")]
+    (testing "valid 2-link chain, attenuated"
+      (let [v (grant/verify-chain [root->b b->c] gctx)]
+        (is (:ok? v))
+        (is (= didC (:holder v)))
+        (is (grant/holds? v "land:orgs/kotoba-lang/kotoba-fleet-vcs"))
+        (is (not (grant/holds? v "land:orgs/kotoba-lang/other")))))
+    (testing "escalation rejected"
+      (let [esc (mk-link didB didC #{"land:orgs/gftdcojp/*"} "2026-07-20T00:00:00Z")]
+        (is (some #{:attenuation-violation}
+                  (:reasons (grant/verify-chain [root->b esc] gctx))))))
+    (testing "untrusted root / broken linkage / expiry / tamper"
+      (is (some #{:root-not-trusted}
+                (:reasons (grant/verify-chain [(mk-link didB didC #{"x"} nil)] gctx))))
+      (is (some #{:broken-linkage}
+                (:reasons (grant/verify-chain
+                           [root->b (mk-link didC didB #{"land:orgs/kotoba-lang/x"} nil)] gctx))))
+      (is (some #{:expired}
+                (:reasons (grant/verify-chain
+                           [(mk-link didA didB #{"x"} "2026-07-01T00:00:00Z")] gctx))))
+      (is (some #{:bad-link-signature}
+                (:reasons (grant/verify-chain
+                           [(assoc root->b :grant/resources #{"pin:orgs/*"})] gctx)))))))
+
+(deftest quorum-canonical-advance
+  (let [policy {:allow #{didA didB didC} :threshold 2}
+        rec    (pin/make-record {:repo "plain" :value "v2" :sequence 1 :parent nil})
+        sig-by (fn [hexk] {:signer (did/pubkey-hex->did hexk)
+                           :signature (fake-sign hexk (pin/canonical-str rec))})
+        qctx   {:policy policy :current nil :verify-fn fake-verify
+                :hash-fn fake-hash :reachable? true}]
+    (testing "2-of-3 accepts"
+      (is (= :accept (:verdict (grant/admit-quorum
+                                {:record rec :signatures [(sig-by hexA) (sig-by hexB)]} qctx)))))
+    (testing "1-of-3 rejected"
+      (is (= [:quorum-not-met]
+             (:reasons (grant/admit-quorum {:record rec :signatures [(sig-by hexA)]} qctx)))))
+    (testing "duplicate signer counts once"
+      (is (some #{:quorum-not-met}
+                (:reasons (grant/admit-quorum
+                           {:record rec :signatures [(sig-by hexA) (sig-by hexA)]} qctx)))))
+    (testing "outsider signature does not count"
+      (let [hexZ (apply str (repeat 32 "dd"))]
+        (is (some #{:quorum-not-met}
+                  (:reasons (grant/admit-quorum
+                             {:record rec :signatures [(sig-by hexA)
+                                                       {:signer (did/pubkey-hex->did hexZ)
+                                                        :signature (fake-sign hexZ (pin/canonical-str rec))}]}
+                             qctx))))))))
