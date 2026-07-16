@@ -1,9 +1,9 @@
 #!/usr/bin/env nbb
 ;; ⑰ object-plane block transfer demo: incremental git-fetch between machines.
 (ns objects-demo
-  (:require [kotoba-git.object :as obj]
-            [kotoba-git.log :as glog]
-            [kotoba-git.repo :as repo]
+  (:require [bonsai.object :as obj]
+            [bonsai.log :as glog]
+            [bonsai.repo :as repo]
             [fleet.objects :as fo]))
 
 (defn blob [db s] (obj/write-blob db (js/Buffer.from s "utf8")))

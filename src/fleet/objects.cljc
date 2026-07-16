@@ -3,7 +3,7 @@
 
   P3b gossip replicates the fleet HEAD (a single record). This module adds
   the actual OBJECT-GRAPH transfer: once a machine learns a peer's head-cid,
-  it computes what git objects it is missing (kotoba-git.log/missing-since —
+  it computes what git objects it is missing (bonsai.log/missing-since —
   the pull-negotiation primitive) and pulls exactly those blocks, verifying
   it can reconstruct the head afterward. No silent full-repo copy; only the
   delta the receiver lacks moves.
@@ -11,8 +11,8 @@
   Pure cljc over a kotoba-git arrangement db (objects are datoms keyed by
   content hash). Needs the kotoba-git classpath (arrangement/prolly-tree/
   io-ipld/io-multiformats/org-ietf-cbor + @noble/hashes on npm)."
-  (:require [kotoba-git.object :as obj]
-            [kotoba-git.log :as glog]))
+  (:require [bonsai.object :as obj]
+            [bonsai.log :as glog]))
 
 (defn read-object
   "Read a CID as whichever object kind it is (blob | tree | commit).
