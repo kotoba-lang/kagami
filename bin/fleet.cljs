@@ -14,11 +14,13 @@
             ;; west.yml reflection to the existing verified path
             ;; (nbb scripts/gen-west-manifest.cljs --entry <name>)."
   (:require ["node:child_process" :as cp]
+            ["node:crypto" :as crypto]
             ["node:fs" :as fs]
             ["node:path" :as path]
             [cljs.reader :as reader]
             [clojure.string :as str]
             [fleet.db :as db]
+            [fleet.pin :as pin]
             [fleet.sync :as sync]
             [fleet.west :as west]
             [promesa.core :as p]))
@@ -164,6 +166,126 @@
                     (println "done in" (.toFixed dt 1) "s:" (pr-str sum))
                     (when (pos? (:failed sum 0)) (js/process.exit 1))))))))
 
+;; ---------------------------------------------------------------------------
+;; ed25519 via node:crypto (Phase 1; ids are ed25519:<pubkey-hex>)
+
+(def ^:private spki-prefix "302a300506032b6570032100") ;; DER SPKI header for raw ed25519 pubkey
+
+(defn pubkey-object [pubkey-hex]
+  (crypto/createPublicKey
+   #js {:key (js/Buffer.from (str spki-prefix pubkey-hex) "hex")
+        :format "der" :type "spki"}))
+
+(defn node-verify [pubkey-hex payload sig-hex]
+  (try
+    (crypto/verify nil (js/Buffer.from payload "utf8")
+                   (pubkey-object pubkey-hex)
+                   (js/Buffer.from sig-hex "hex"))
+    (catch :default _ false)))
+
+(defn node-sign [privkey-pem payload]
+  (-> (crypto/sign nil (js/Buffer.from payload "utf8")
+                   (crypto/createPrivateKey privkey-pem))
+      (.toString "hex")))
+
+(defn node-sha256 [s]
+  (-> (crypto/createHash "sha256") (.update s "utf8") (.digest "hex")))
+
+(defn pubkey-hex-of-priv [privkey-pem]
+  (let [pub (crypto/createPublicKey (crypto/createPrivateKey privkey-pem))
+        der (.export pub #js {:format "der" :type "spki"})]
+    (-> der (.subarray (- (.-length der) 32)) (.toString "hex"))))
+
+(defn cmd-keygen [{:keys [out]}]
+  (when-not out (die "keygen needs --out <privkey.pem>"))
+  (let [kp (crypto/generateKeyPairSync
+            "ed25519" #js {:privateKeyEncoding #js {:format "pem" :type "pkcs8"}
+                           :publicKeyEncoding  #js {:format "der" :type "spki"}})
+        pem (.-privateKey kp)
+        raw (-> (.-publicKey kp) (.subarray (- (.-length (.-publicKey kp)) 32)) (.toString "hex"))]
+    (fs/writeFileSync out pem #js {:mode 0600})
+    (println "private key:" out "(mode 0600 — keep out of git; see secrets-location-map)")
+    (println "signer id  : " (str "ed25519:" raw))))
+
+(defn gh-reachable?
+  "Server-side reachability: pin must be identical|behind vs default branch.
+  404/API failure -> :unknown (fail-open, same as verify-west-pins)."
+  [org-repo sha]
+  (p/let [r (sh ["gh" "api" (str "repos/" org-repo "/compare/HEAD..." sha)
+                 "--jq" ".status"])]
+    (if-not (:ok? r)
+      :unknown
+      (contains? #{"identical" "behind"} (str/trim (:out r))))))
+
+(defn org-repo-of [d entity]
+  (let [base (some #(when (= (:remote/name %) (:repo/remote entity)) (:remote/url-base %))
+                   (:fleet/remotes d))
+        org  (last (str/split base #"[:/]"))]
+    (str org "/" (or (:repo/repo-path entity) (:repo/name entity)))))
+
+(defn load-ledger [f]
+  (if (fs/existsSync f)
+    (mapv reader/read-string (remove str/blank? (str/split (slurp* f) #"\n")))
+    []))
+
+(defn last-signed [ledger repo]
+  (->> ledger
+       (filter #(and (= :pin/advance-signed (:event/type %))
+                     (= repo (get-in % [:pin/record :pin/name]))))
+       last))
+
+(defn cmd-pin-advance-signed
+  "Signed pin advance (Phase 1): sign -> admission gate -> ledger + db +
+  west.yml projection splice. Rejection exits 1 with reasons."
+  [{:keys [db repo new key keys west] :as opts}]
+  (when-not (and db repo new key keys)
+    (die "pin-advance needs --db --repo --new --key <privkey.pem> --keys <fleet-keys.edn>"))
+  (let [d       (load-db db)
+        entity  (or (west/find-repo d repo) (die (str "unknown repo " repo)))
+        keyring (reader/read-string (slurp* keys))
+        pem     (slurp* key)
+        signer  (str "ed25519:" (pubkey-hex-of-priv pem))
+        ledgerf (str/replace db #"\.edn$" ".ledger.edn")
+        ledger  (load-ledger ledgerf)
+        cur-ev  (last-signed ledger repo)
+        current (when cur-ev {:record (:pin/record cur-ev)
+                              :signature (:pin/signature cur-ev)})
+        record  (pin/make-record
+                 {:repo repo :value new
+                  :sequence (inc (get-in current [:record :pin/sequence] 0))
+                  :parent (when current
+                            (pin/record-hash node-sha256 (:record current)
+                                             (:signature current)))})
+        sig     (node-sign pem (pin/canonical-str record))]
+    (p/let [reach (gh-reachable? (org-repo-of d entity) new)]
+      (let [proposal {:record record :signature sig :signer signer}
+            verdict  (pin/admit proposal
+                                {:repo-path (:repo/path entity)
+                                 :current current
+                                 :keyring keyring
+                                 :verify-fn node-verify
+                                 :hash-fn node-sha256
+                                 :reachable? reach})]
+        (if (= :reject (:verdict verdict))
+          (do (js/console.error "REJECTED:" (pr-str (:reasons verdict)))
+              (js/process.exit 1))
+          (let [ev (pin/accepted-event proposal verdict (db/next-seq ledger)
+                                       (.toISOString (js/Date.)))
+                d' (db/apply-pin-advance d {:repo/name repo :pin/new new})]
+            (fs/appendFileSync ledgerf (str (pr-str ev) "\n"))
+            (spit* db (pr-str d'))
+            (when west
+              (let [w (west/parse (slurp* west))
+                    w' (update w :fleet/repos
+                               (fn [rs] (mapv #(if (= (:repo/name %) repo)
+                                                 (assoc % :repo/revision new) %)
+                                              rs)))]
+                (spit* west (west/emit w'))))
+            (println (name (:verdict verdict)) "— seq" (:pin/sequence record)
+                     "signer" signer)
+            (when (seq (:reasons verdict)) (println "  note:" (pr-str (:reasons verdict))))
+            (println "ledger:" ledgerf (if west (str "/ projected: " west) ""))))))))
+
 (defn cmd-pin-advance [{:keys [db repo new actor]}]
   (when-not (and db repo new) (die "pin-advance needs --db --repo --new"))
   (let [dbf    db
@@ -186,7 +308,10 @@
 
 (def commands
   {"import" cmd-import "check" cmd-check "stats" cmd-stats
-   "list" cmd-list "sync" cmd-sync "pin-advance" cmd-pin-advance})
+   "list" cmd-list "sync" cmd-sync
+   "keygen" cmd-keygen
+   "pin-advance" cmd-pin-advance-signed
+   "pin-advance-unsigned" cmd-pin-advance})
 
 (let [[cmd & rest-args] *command-line-args*
       f (get commands cmd)]

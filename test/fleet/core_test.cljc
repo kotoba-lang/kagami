@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [fleet.db :as db]
+            [fleet.pin :as pin]
             [fleet.sync :as sync]
             [fleet.west :as west]))
 
@@ -127,3 +128,59 @@
              (mapv :repo/name (sync/working-set d {:org "kotoba-lang"}))))
       (is (= ["annexed"] (mapv :repo/name (sync/working-set d {:group "datalad"}))))
       (is (= ["retired"] (mapv :repo/name (sync/working-set d {:names ["retired"]})))))))
+
+;; ---------------------------------------------------------------------------
+;; Phase 1: signed pin admission gate (pure — fake crypto ports)
+
+(def ^:private fake-hash #(str "H" (count %)))
+;; fake signature scheme: sig is valid iff it equals "SIG:" + pubkey + payload hash
+(defn- fake-sign [pubkey payload] (str "SIG:" pubkey ":" (fake-hash payload)))
+(defn- fake-verify [pubkey payload sig] (= sig (fake-sign pubkey payload)))
+
+(def ^:private keyring
+  {:keys {"ed25519:agentA" {:grants #{"orgs/kotoba-lang/*"}}
+          "ed25519:agentB" {:grants #{"orgs/gftdcojp/one-repo"}}}})
+
+(defn- proposal [pubkey rec]
+  {:record rec :signature (fake-sign pubkey (pin/canonical-str rec)) :signer (str "ed25519:" pubkey)})
+
+(defn- ctx [current & {:as extra}]
+  (merge {:repo-path "orgs/kotoba-lang/plain" :current current :keyring keyring
+          :verify-fn fake-verify :hash-fn fake-hash :reachable? true}
+         extra))
+
+(deftest pin-admission-gate
+  (let [genesis (pin/make-record {:repo "plain" :value "aaa" :sequence 1 :parent nil})
+        g-prop  (proposal "agentA" genesis)
+        g-cur   {:record genesis :signature (:signature g-prop)}
+        next-ok (pin/make-record {:repo "plain" :value "bbb" :sequence 2
+                                  :parent (pin/record-hash fake-hash genesis (:signature g-prop))})]
+    (testing "genesis accept"
+      (is (= :accept (:verdict (pin/admit g-prop (ctx nil))))))
+    (testing "valid advance accepts"
+      (is (= :accept (:verdict (pin/admit (proposal "agentA" next-ok) (ctx g-cur))))))
+    (testing "sequence rollback rejected even with a valid signature"
+      (let [bad (assoc next-ok :pin/sequence 1)]
+        (is (some #{:sequence-rollback}
+                  (:reasons (pin/admit (proposal "agentA" bad) (ctx g-cur)))))))
+    (testing "parent mismatch (replay) rejected"
+      (let [bad (assoc next-ok :pin/parent "H999")]
+        (is (some #{:parent-mismatch}
+                  (:reasons (pin/admit (proposal "agentA" bad) (ctx g-cur)))))))
+    (testing "unauthorized signer rejected (grant does not cover the path)"
+      (is (some #{:unauthorized-signer}
+                (:reasons (pin/admit (proposal "agentB" next-ok) (ctx g-cur))))))
+    (testing "tampered record fails signature"
+      (let [p (proposal "agentA" next-ok)
+            tampered (assoc-in p [:record :pin/value] "evil")]
+        (is (some #{:bad-signature}
+                  (:reasons (pin/admit tampered (ctx g-cur)))))))
+    (testing "unreachable pin rejected; unverifiable warn-accepts (fail-open)"
+      (is (some #{:unreachable-from-upstream-default-branch}
+                (:reasons (pin/admit (proposal "agentA" next-ok) (ctx g-cur :reachable? false)))))
+      (is (= :warn-accept
+             (:verdict (pin/admit (proposal "agentA" next-ok) (ctx g-cur :reachable? :unknown))))))
+    (testing "grant wildcard semantics"
+      (is (pin/authorized? keyring "ed25519:agentA" "orgs/kotoba-lang/anything"))
+      (is (not (pin/authorized? keyring "ed25519:agentA" "orgs/gftdcojp/x")))
+      (is (pin/authorized? keyring "ed25519:agentB" "orgs/gftdcojp/one-repo")))))
