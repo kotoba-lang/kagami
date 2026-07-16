@@ -26,6 +26,18 @@
   [{:grant/keys [iss aud resources exp]}]
   (pr-str ["fleet-grant/v1" iss aud (vec (sort resources)) exp]))
 
+(defn grant->cacao-payload
+  "Bridge to CAIP-122 CACAO (org-chainagnostic-cacao). fleet.grant's fields
+  are ALREADY the CACAO payload fields (iss/aud/resources/exp); this emits the
+  CAIP-122 payload map so a fleet grant can be handed to cacao.core/mint on the
+  JVM (cacao.core is JVM-only today — see kotoba-rad.cacao-delegate — so the
+  fleet nbb CLI can't verify CACAO directly; this makes the interop path
+  concrete for the eventual cljc port). The trailing-* wildcard convention
+  matches cacao.core/covers? exactly."
+  [{:grant/keys [iss aud resources exp]}]
+  (cond-> {:iss iss :aud aud :resources (vec (sort resources))}
+    exp (assoc :exp exp)))
+
 (defn verify-chain
   "chain: [link ...] root-first, each {:grant/iss :grant/aud :grant/resources
   :grant/exp :grant/sig}. ctx: {:roots #{did} :verify-fn f :now iso-str}.

@@ -434,3 +434,16 @@
       (is (not (db/drift? (db/scope-diff-repos full ["heavy-sub"])))))
     (testing "both repos in scope"
       (is (= 2 (count (:changed (db/scope-diff-repos full ["plain" "annexed"]))))))))
+
+(deftest cacao-payload-bridge
+  (let [link {:grant/iss "did:key:zA" :grant/aud "did:key:zB"
+              :grant/resources #{"pin:orgs/kotoba-lang/*" "land:orgs/kotoba-lang/kagami"}
+              :grant/exp "2026-08-01T00:00:00Z"}
+        payload (grant/grant->cacao-payload link)]
+    (testing "fleet grant maps to a CAIP-122 CACAO payload (iss/aud/resources/exp)"
+      (is (= "did:key:zA" (:iss payload)))
+      (is (= "did:key:zB" (:aud payload)))
+      (is (= ["land:orgs/kotoba-lang/kagami" "pin:orgs/kotoba-lang/*"] (:resources payload)))
+      (is (= "2026-08-01T00:00:00Z" (:exp payload))))
+    (testing "exp omitted when absent"
+      (is (not (contains? (grant/grant->cacao-payload (dissoc link :grant/exp)) :exp))))))
