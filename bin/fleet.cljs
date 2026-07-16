@@ -428,15 +428,17 @@
 (defn cmd-govern
   "Governed land-back: server-side merge of an agent branch into the child
   repo's default branch, then a quorum-signed canonical pin advance."
-  [{:keys [db keys repo branch gov-keys west]}]
-  (when-not (and db keys repo branch gov-keys)
-    (die "govern needs --db --keys --repo --branch --gov-keys k1.pem,k2.pem [--west]"))
+  [{:keys [db keys repo branch gov-keys gov-kagi west]}]
+  (when-not (and db keys repo branch (or gov-keys gov-kagi))
+    (die "govern needs --db --keys --repo --branch (--gov-keys k1.pem,k2|--gov-kagi n1,n2) [--west]"))
   (lock-db! db)
   (let [d       (load-db db)
         entity  (or (west/find-repo d repo) (die (str "unknown repo " repo)))
         cfg     (reader/read-string (slurp* keys))
         policy  (:canonical cfg)
-        pems    (mapv slurp* (str/split gov-keys #","))
+        pems    (if gov-kagi
+                  (mapv #(read-key {:kagi %}) (str/split gov-kagi #","))
+                  (mapv slurp* (str/split gov-keys #",")))
         orl     (org-repo-of d entity)
         ledgerf (str/replace db #"\.edn$" ".ledger.edn")
         ledger  (load-ledger ledgerf)
@@ -593,7 +595,7 @@
   "Phase 3a: self-certifying signed head over the fleet-db content —
   the record a p2p head-announce (kotoba-lang/p2p) carries between fleet
   machines. --verify checks signature + content hash against the db file."
-  [{:keys [db key out verify]}]
+  [{:keys [db key kagi out verify] :as opts}]
   (let [headf (or out (str/replace db #"\.edn$" ".head.edn"))
         content-hash (node-sha256 (slurp* db))]
     (if verify
@@ -608,8 +610,8 @@
           :else (println "head OK: seq" (:pin/sequence record) "value"
                          (subs content-hash 0 12) "signer" signer)))
       (do
-        (when-not (and db key) (die "head needs --db --key [--out] | --verify"))
-        (let [pem  (slurp* key)
+        (when-not (and db (or key kagi)) (die "head needs --db (--key PEM|--kagi NAME) [--out] | --verify"))
+        (let [pem  (read-key opts)
               prev (when (fs/existsSync headf) (reader/read-string (slurp* headf)))
               rec  (pin/make-record
                     {:repo "fleet-db" :value content-hash
