@@ -90,6 +90,17 @@ name+rev set 完全一致、`verify-chain` OK。block store 本体は production
 B2/R2（DataLad/B2 経路）。EDN の fleet-db は作業/cache 形として残り、chain が
 durable な backing になる。
 
+## p2p 実 HTTP transport + clone-free reachability（ADR-2607160005 P3b）
+
+到達性を各ノードが clone で確認する代わりに、**一度確認したノードが署名した
+reachability receipt を p2p で配り他ノードが信頼する**（fleet.ci receipt 型を
+到達性に適用）。`fleet reach-emit` が local-git 検証後に署名 receipt を発行、
+`fleet serve`（node http）が `GET /reach?repo=&pin=` / `GET /head` で配信、
+`--reach peer:<url>` が receipt を HTTP 取得して署名・trust・鮮度を検証。
+**実測: Node B が private club-shinshi を、壊れた GH_TOKEN かつ clone なしで
+peer receipt 経由で検証 OK**、receipt 無しは WARN（偽 OK でない）。これで
+「reachability の clone すら不要化」が実ネットワークで達成。
+
 ## sovereign reachability（PAT を消す、ADR-2607160005）
 
 pin 検証で GitHub に触るのは到達性チェックだけだった。それを **fleet 自身の
