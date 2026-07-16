@@ -68,6 +68,17 @@ nbb --classpath src:test run-tests.cljs
   quorum / sequence / parent / reachability / value-advance）。
 - 残: workspace manager（GC / checkpoint / best-of-N）と鍵の 1Password 移設。
 
+## sovereign reachability（PAT を消す、ADR-2607160005）
+
+pin 検証で GitHub に触るのは到達性チェックだけだった。それを **fleet 自身の
+materialize した commit graph（treeless clone via git/SSH）**への問い合わせに
+差し替えた（`--reach local-git`、既定）。gh API も PAT も使わず、**private repo も
+owner の git 権限で strict 検証**できる（実証: 壊れた GH_TOKEN でも private
+club-shinshi が OK、bogus SHA は CONFIRMED unreachable）。署名・sequence・parent・
+権限は既に nekko/kagami で主権的なので、これで pin 検証全体が GitHub 非依存になる
+（GitHub は object transport の mirror に降格）。`--reach github` は公開 repo 用の
+fallback。**item「FLEET_PIN_TOKEN 発行」は不要になった**。
+
 ## native CI（execution-receipt 型、ADR-2607160005）
 
 - `fleet.ci`: fleet の pin 検証を **content-addressed・署名付き verification

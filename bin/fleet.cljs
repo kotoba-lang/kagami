@@ -318,6 +318,46 @@
         :unknown
         (= "ahead" (str/trim (:out r)))))))
 
+(def ^:private reach-counter (atom 0))
+
+(defn reach-local-git
+  "SOVEREIGN reachability (no gh API, no PAT): materialize the repo's full
+  commit graph locally (treeless clone via git/SSH — works for private repos
+  as the owner) and answer both ancestry questions with local git, against
+  the fleet's own materialized copy rather than GitHub's server-side view.
+
+  Treeless (--filter=blob:none) = full commit ancestry, no file blobs, so it
+  is fast AND immune to the shallow-clone false-ancestry trap (CLAUDE.md).
+  -> {:reachable? bool|:unknown :value-advance? bool|:unknown}"
+  [url pin old-value]
+  (let [tmp (str "/tmp/fleet-reach-" (.-pid js/process) "-" (swap! reach-counter inc))]
+    (p/let [c (sh ["git" "clone" "--filter=blob:none" "--no-checkout" "--quiet" url tmp])]
+      (if-not (:ok? c)
+        (do (sh ["rm" "-rf" tmp]) {:reachable? :unknown :value-advance? :unknown})
+        (p/let [_    (sh ["git" "-C" tmp "fetch" "--filter=blob:none" "--quiet" "origin" pin])
+                dref (sh ["git" "-C" tmp "rev-parse" "--abbrev-ref" "origin/HEAD"])
+                defb (let [o (str/trim (:out dref))] (if (str/blank? o) "origin/HEAD" o))
+                ex   (sh ["git" "-C" tmp "cat-file" "-e" (str pin "^{commit}")])
+                rc   (sh ["git" "-C" tmp "merge-base" "--is-ancestor" pin defb])
+                va   (if old-value
+                       (sh ["git" "-C" tmp "merge-base" "--is-ancestor" old-value pin])
+                       (p/resolved {:ok? true}))
+                _    (sh ["rm" "-rf" tmp])]
+          {:reachable? (if (:ok? ex) (:ok? rc) false)
+           :value-advance? (if old-value (:ok? va) true)})))))
+
+(defn compute-reach
+  "Reachability provider dispatch. :local-git (default, sovereign, no PAT)
+  verifies against the fleet's own materialized commit graph; :github uses
+  the gh compare API (needs a token that can read the repo — a PAT for
+  private in CI). Returns {:reachable? :value-advance?}."
+  [provider url org-repo pin old-value]
+  (case (keyword (or provider "local-git"))
+    :github (p/let [r (gh-reachable? org-repo pin)
+                    v (gh-value-advance? org-repo old-value pin)]
+              {:reachable? r :value-advance? v})
+    (reach-local-git url pin old-value)))
+
 (defn org-repo-of [d entity]
   (let [base (some #(when (= (:remote/name %) (:repo/remote entity)) (:remote/url-base %))
                    (:fleet/remotes d))
@@ -340,7 +380,7 @@
 (defn cmd-pin-advance-signed
   "Signed pin advance (Phase 1): sign -> admission gate -> ledger + db +
   west.yml projection splice. Rejection exits 1 with reasons."
-  [{:keys [db repo new key kagi keys registry west] :as opts}]
+  [{:keys [db repo new key kagi keys registry west reach] :as opts}]
   (when-not (and db repo new keys (or key kagi))
     (die "pin-advance needs --db --repo --new (--key PEM|--kagi NAME) --keys <fleet-keys.edn>"))
   (lock-db! db)
@@ -365,8 +405,10 @@
                                              (:signature current)))})
         sig     (node-sign pem (pin/canonical-str record))]
     (p/let [orl   (p/resolved (org-repo-of d entity))
-            reach (gh-reachable? orl new)
-            vadv  (gh-value-advance? orl (get-in current [:record :pin/value]) new)]
+            url   (p/resolved (west/remote-url d entity))
+            rv    (compute-reach reach url orl new (get-in current [:record :pin/value]))
+            reach (p/resolved (:reachable? rv))
+            vadv  (p/resolved (:value-advance? rv))]
       (let [proposal {:record record :signature sig :signer signer}
             verdict  (pin/admit proposal
                                 {:repo-path (:repo/path entity)
@@ -629,19 +671,23 @@
 
 (defn cmd-verify-pins
   "A (daily-driver): verify each named repo's pin is reachable from its
-  upstream default branch. STRICT when the gh token can read the repo:
-  CONFIRMED unreachable -> exit 1. Private cross-org repos a scoped CI
-  token can't see return :unknown -> WARN passthrough (west convention;
-  set FLEET_PIN_TOKEN as GH_TOKEN to make private checks strict too)."
-  [{:keys [db repos]}]
-  (when-not (and db repos) (die "verify-pins needs --db --repos a,b,c"))
+  upstream default branch. Default --reach local-git is SOVEREIGN — it
+  verifies against the fleet's own materialized commit graph (treeless
+  clone via git/SSH), so PRIVATE repos verify STRICTLY with NO gh API and
+  NO PAT (the owner's git access suffices). --reach github uses the compare
+  API (needs a token that can read private cross-org repos = a PAT in CI).
+  CONFIRMED unreachable -> exit 1; :unknown -> WARN passthrough."
+  [{:keys [db repos reach]}]
+  (when-not (and db repos) (die "verify-pins needs --db --repos a,b,c [--reach local-git|github]"))
   (let [d (load-db db)
         names (str/split repos #",")]
     (-> (p/all
          (for [nm names]
            (let [e (west/find-repo d nm)]
              (if-not e (p/resolved {:repo nm :verdict :unknown-repo})
-                 (p/let [r (gh-reachable? (org-repo-of d e) (:repo/revision e))]
+                 (p/let [rv (compute-reach reach (west/remote-url d e)
+                                           (org-repo-of d e) (:repo/revision e) nil)
+                         r (:reachable? rv)]
                    {:repo nm :verdict (case r true :ok false :unreachable :unknown :warn)})))))
         (p/then (fn [results]
                   (doseq [{:keys [repo verdict]} results]
