@@ -24,6 +24,7 @@
             [fleet.ci :as ci]
             [fleet.grant :as grant]
             [fleet.pin :as pin]
+            [fleet.reach :as reach]
             [fleet.p2p]
             [fleet.sync :as sync]
             [fleet.west :as west]
@@ -346,17 +347,82 @@
           {:reachable? (if (:ok? ex) (:ok? rc) false)
            :value-advance? (if old-value (:ok? va) true)})))))
 
+(defn http-get-edn
+  "GET a URL, parse EDN body. -> edn or :error."
+  [url]
+  (p/create
+   (fn [resolve _]
+     (try
+       (let [mod (if (str/starts-with? url "https") (js/require "node:https") (js/require "node:http"))
+             req (.get mod url
+                       (fn [res]
+                         (let [body (atom "")]
+                           (.on res "data" #(swap! body str %))
+                           (.on res "end" #(resolve (if (= 200 (.-statusCode res))
+                                                      (try (reader/read-string @body) (catch :default _ :error))
+                                                      :error))))))]
+         (.on req "error" (fn [_] (resolve :error)))
+         (.setTimeout req 5000 (fn [] (.destroy req) (resolve :error))))
+       (catch :default _ (resolve :error))))))
+
+(defn reach-peer
+  "Trust a peer's SIGNED reachability receipt instead of cloning (clone-free,
+  no gh API). Fetches from http://<peer>/reach?repo=&pin=, verifies signature
+  + trust + freshness. peer-spec = 'peer:<base-url>'. Needs the keyring trust
+  set + this repo's name."
+  [peer-spec repo pin keyring-file]
+  (let [base (subs peer-spec (count "peer:"))
+        cfg (reader/read-string (slurp* keyring-file))
+        trust (into (or (:roots cfg) #{}) (get-in cfg [:canonical :allow]))]
+    (p/let [r (http-get-edn (str base "/reach?repo=" repo "&pin=" pin))]
+      (if (= r :error)
+        {:reachable? :unknown :value-advance? :unknown}
+        (let [v (reach/verify-receipt r {:trust trust :verify-fn node-verify
+                                         :did->pubkey #(did/did->pubkey-hex %)
+                                         :repo repo :pin pin
+                                         :now (.now js/Date) :max-age-ms 86400000})]
+          (if (:ok? v)
+            {:reachable? (:reachable? v) :value-advance? (:value-advance? v)}
+            {:reachable? :unknown :value-advance? :unknown}))))))
+
 (defn compute-reach
-  "Reachability provider dispatch. :local-git (default, sovereign, no PAT)
-  verifies against the fleet's own materialized commit graph; :github uses
-  the gh compare API (needs a token that can read the repo — a PAT for
-  private in CI). Returns {:reachable? :value-advance?}."
-  [provider url org-repo pin old-value]
-  (case (keyword (or provider "local-git"))
-    :github (p/let [r (gh-reachable? org-repo pin)
-                    v (gh-value-advance? org-repo old-value pin)]
-              {:reachable? r :value-advance? v})
-    (reach-local-git url pin old-value)))
+  "Reachability provider dispatch:
+   :local-git (default, sovereign) — materialize the commit graph locally.
+   peer:<url> — trust a peer's SIGNED reachability receipt (clone-free, no
+     gh API); needs `keys` (keyring for trust) + `repo` (name).
+   :github — gh compare API (needs a token; PAT for private in CI).
+   Returns {:reachable? :value-advance?}."
+  [provider url org-repo pin old-value & [{:keys [repo keys]}]]
+  (cond
+    (and (string? provider) (str/starts-with? provider "peer:"))
+    (reach-peer provider repo pin keys)
+    (= :github (keyword (or provider "local-git")))
+    (p/let [r (gh-reachable? org-repo pin)
+            v (gh-value-advance? org-repo old-value pin)]
+      {:reachable? r :value-advance? v})
+    :else (reach-local-git url pin old-value)))
+
+(defn cmd-reach-emit
+  "Emit a SIGNED reachability receipt for a pin (after a local-git check),
+  appended to --out. Peers fetch it (fleet serve /reach) to trust reachability
+  without cloning. This is the producer side of the clone-free path."
+  [{:keys [db repo key kagi out] :as opts}]
+  (when-not (and db repo (or key kagi)) (die "reach-emit needs --db --repo (--key|--kagi) [--out]"))
+  (let [d (load-db db)
+        e (or (west/find-repo d repo) (die (str "unknown repo " repo)))
+        pem (read-key opts)
+        signer (did/pubkey-hex->did (pubkey-hex-of-priv pem))
+        outf (or out (str/replace db #"[^/]+$" "reach-receipts.edn"))]
+    (p/let [rv (reach-local-git (west/remote-url d e) (:repo/revision e) nil)]
+      (let [receipt (reach/make-receipt
+                     {:repo repo :pin (:repo/revision e) :default-tip nil
+                      :reachable? (true? (:reachable? rv))
+                      :value-advance? true :at (.toISOString (js/Date.))})
+            signed (reach/sign-receipt #(node-sign pem %) signer receipt)]
+        (fs/appendFileSync outf (str (pr-str signed) "\n"))
+        (println (if (:reach/reachable? receipt) "reachable" "UNREACHABLE")
+                 "— signed reach receipt for" repo (subs (:repo/revision e) 0 12)
+                 "-> " outf "(signer" signer ")")))))
 
 (defn org-repo-of [d entity]
   (let [base (some #(when (= (:remote/name %) (:repo/remote entity)) (:remote/url-base %))
@@ -677,8 +743,8 @@
   NO PAT (the owner's git access suffices). --reach github uses the compare
   API (needs a token that can read private cross-org repos = a PAT in CI).
   CONFIRMED unreachable -> exit 1; :unknown -> WARN passthrough."
-  [{:keys [db repos reach]}]
-  (when-not (and db repos) (die "verify-pins needs --db --repos a,b,c [--reach local-git|github]"))
+  [{:keys [db repos reach keys]}]
+  (when-not (and db repos) (die "verify-pins needs --db --repos a,b,c [--reach local-git|github|peer:URL] [--keys keyring]"))
   (let [d (load-db db)
         names (str/split repos #",")]
     (-> (p/all
@@ -686,7 +752,8 @@
            (let [e (west/find-repo d nm)]
              (if-not e (p/resolved {:repo nm :verdict :unknown-repo})
                  (p/let [rv (compute-reach reach (west/remote-url d e)
-                                           (org-repo-of d e) (:repo/revision e) nil)
+                                           (org-repo-of d e) (:repo/revision e) nil
+                                           {:repo nm :keys keys})
                          r (:reachable? rv)]
                    {:repo nm :verdict (case r true :ok false :unreachable :unknown :warn)})))))
         (p/then (fn [results]
@@ -900,7 +967,7 @@
 
 (def commands
   {"import" cmd-import "check" cmd-check "stats" cmd-stats
-   "reconcile" cmd-reconcile "head" cmd-head "verify-pins" cmd-verify-pins "ci-verify" cmd-ci-verify
+   "reconcile" cmd-reconcile "head" cmd-head "verify-pins" cmd-verify-pins "ci-verify" cmd-ci-verify "reach-emit" cmd-reach-emit
    "announce" cmd-announce "receive" cmd-receive
    "ws-gc" cmd-ws-gc "checkpoint" cmd-checkpoint
    "list" cmd-list "sync" cmd-sync
