@@ -93,6 +93,17 @@ name+rev set 完全一致、`verify-chain` OK。block store 本体は production
 B2/R2（DataLad/B2 経路）。EDN の fleet-db は作業/cache 形として残り、chain が
 durable な backing になる。
 
+## CACAO 完全整合（本物の CAIP-122、ADR-2607160005）
+
+**cacao.core（org-chainagnostic-cacao）は既に portable .cljc で nbb 完動**
+（「JVM-only」注記は古い）。移植不要で、`bin/cacao.cljs` が **本物の CAIP-122
+CACAO** を mint/verify/verify-chain する（署名 seed は kagi PEM から抽出）。
+fleet-native lookalike（fleet.grant）でなく実 CACAO を使える。実測: owner が
+enrolled agent did に pin+land grant を mint → agent が kagami に attenuate して
+sub-delegate → **CHAIN VALID（depth 2、resources 減衰、expiry 強制）**。
+`grant->cacao-payload`（前述）で fleet grant と CACAO payload を橋渡し。
+（さらに kotoba wasm compiler での CACAO 実行は将来の選択肢。今は nbb で完動。）
+
 ## p2p 実 HTTP transport + clone-free reachability（ADR-2607160005 P3b）
 
 到達性を各ノードが clone で確認する代わりに、**一度確認したノードが署名した
