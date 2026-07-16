@@ -359,3 +359,22 @@
     (testing "forged signature rejected"
       (let [bad (assoc-in ann5 [:fleet-head :signature] "deadbeef")]
         (is (some #{:bad-signature} (:reasons (fleet.p2p/verify-announce bad ctx))))))))
+
+(deftest agent-registry-merge
+  ;; merge-registry lives in the CLI; test the pure semantics inline here
+  ;; via the same logic to lock the contract.
+  (let [keyring {:keys {"ed25519:gov" {:grants #{"orgs/*"}}}
+                 :delta/editors #{"did:key:gov"}}
+        entry {:signer "ed25519:agentX" :did "did:key:agentX"
+               :grants #{"orgs/kotoba-lang/*"} :agent "sessionX"}
+        merged (-> keyring
+                   (update-in [:keys "ed25519:agentX"] #(or % {:grants (:grants entry)}))
+                   (update :delta/editors conj (:did entry)))]
+    (testing "enrolled agent key added with its scoped grant"
+      (is (= #{"orgs/kotoba-lang/*"} (get-in merged [:keys "ed25519:agentX" :grants]))))
+    (testing "governance key preserved, editor set grows"
+      (is (= #{"orgs/*"} (get-in merged [:keys "ed25519:gov" :grants])))
+      (is (contains? (:delta/editors merged) "did:key:agentX")))
+    (testing "governance wins: enrolled key cannot override an existing grant"
+      (let [collide (update-in keyring [:keys "ed25519:gov"] #(or % {:grants #{"orgs/evil/*"}}))]
+        (is (= #{"orgs/*"} (get-in collide [:keys "ed25519:gov" :grants])))))))

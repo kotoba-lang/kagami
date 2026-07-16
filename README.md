@@ -69,6 +69,18 @@ nbb --classpath src:test run-tests.cljs
   quorum / sequence / parent / reachability / value-advance）。
 - 残: workspace manager（GC / checkpoint / best-of-N）と鍵の 1Password 移設。
 
+## Phase ⑥ — per-agent identity (hard-flip prerequisite)
+
+- `fleet enroll --agent NAME --grant PATH --registry fleet-agents.edn` —
+  各 agent セッションに専用 did:key を mint し kagi に格納、append-only の
+  agent registry に scoped grant 付きで登録。共有 owner 鍵でなく**自分の鍵**で
+  署名する。governance keyring（fleet-keys.edn、roots/canonical）は人間が管理、
+  registry は機械管理（base-datoms/ledger 分離と同型）。
+- `--registry` を渡すと pin-advance が registry の grant を keyring に merge
+  （governance が衝突時に勝つ）。GitHub 側は全 agent が同一 owner token で
+  push するため per-agent 区別は原理的に不可 — 署名レイヤの per-agent auth が
+  hard flip の前提。実 flip（legacy 書き込み拒否）は全 session enroll 後。
+
 ## Phase 3b — fleet head gossip (p2p)
 
 - `fleet announce --head fleet-head.edn` — P3a signed head を

@@ -234,6 +234,54 @@
         der (.export pub #js {:format "der" :type "spki"})]
     (-> der (.subarray (- (.-length der) 32)) (.toString "hex"))))
 
+(defn kagi-put!
+  "Store a PEM into kagi (compartment personal). Returns kagi name."
+  [name pem]
+  (let [root (or (.-FLEET_ROOT js/process.env) (js/process.cwd))
+        bin  (str root "/orgs/kotoba-lang/kagi/bin/kagi")]
+    (cp/execFileSync bin #js ["add" name "--compartment" "personal"]
+                     #js {:input pem :stdio #js ["pipe" "ignore" "inherit"] :timeout 120000})
+    name))
+
+(defn cmd-enroll
+  "Per-agent identity (⑥ hard-flip prerequisite): mint a keypair into kagi
+  and append its did:key to the append-only agent registry --registry
+  (fleet-agents.edn) with a scoped grant, so each agent session signs with
+  its OWN key. The hand-maintained governance keyring (fleet-keys.edn,
+  roots/canonical) is left untouched — humans own governance, the registry
+  is machine-managed. Read paths merge registry entries into the keyring."
+  [{:keys [agent grant registry]}]
+  (when-not (and agent grant registry)
+    (die "enroll needs --agent NAME --grant PATH --registry fleet-agents.edn"))
+  (let [kp  (crypto/generateKeyPairSync
+             "ed25519" #js {:privateKeyEncoding #js {:format "pem" :type "pkcs8"}
+                            :publicKeyEncoding  #js {:format "der" :type "spki"}})
+        pem (.-privateKey kp)
+        raw (-> (.-publicKey kp) (.subarray (- (.-length (.-publicKey kp)) 32)) (.toString "hex"))
+        kname (str "fleet-agent-" agent)
+        _   (kagi-put! kname pem)
+        entry {:signer (str "ed25519:" raw) :did (did/pubkey-hex->did raw)
+               :agent agent :kagi kname :grants #{grant}
+               :enrolled (.toISOString (js/Date.))}]
+    (fs/appendFileSync registry (str (pr-str entry) "\n"))
+    (println "enrolled agent" agent "-> registry" registry)
+    (println "  kagi key :" kname "(compartment personal)")
+    (println "  did      :" (:did entry))
+    (println "  grant    :" grant)))
+
+(defn merge-registry
+  "Merge append-only agent registry entries into a keyring map (governance
+  keyring wins on conflict — an enrolled key can't override a governance grant)."
+  [keyring registry-file]
+  (if-not (fs/existsSync registry-file)
+    keyring
+    (reduce (fn [kr {:keys [signer grants did]}]
+              (-> kr
+                  (update-in [:keys signer] #(or % {:grants grants}))
+                  (update :delta/editors (fnil conj #{}) did)))
+            keyring
+            (mapv reader/read-string (remove str/blank? (str/split (slurp* registry-file) #"\n"))))))
+
 (defn cmd-keygen [{:keys [out]}]
   (when-not out (die "keygen needs --out <privkey.pem>"))
   (let [kp (crypto/generateKeyPairSync
@@ -291,13 +339,14 @@
 (defn cmd-pin-advance-signed
   "Signed pin advance (Phase 1): sign -> admission gate -> ledger + db +
   west.yml projection splice. Rejection exits 1 with reasons."
-  [{:keys [db repo new key kagi keys west] :as opts}]
+  [{:keys [db repo new key kagi keys registry west] :as opts}]
   (when-not (and db repo new keys (or key kagi))
     (die "pin-advance needs --db --repo --new (--key PEM|--kagi NAME) --keys <fleet-keys.edn>"))
   (lock-db! db)
   (let [d       (load-db db)
         entity  (or (west/find-repo d repo) (die (str "unknown repo " repo)))
-        keyring (reader/read-string (slurp* keys))
+        keyring (cond-> (reader/read-string (slurp* keys))
+                  registry (merge-registry registry))
         pem     (read-key opts)
         signer  (str "ed25519:" (pubkey-hex-of-priv pem))
         ledgerf (str/replace db #"\.edn$" ".ledger.edn")
@@ -668,7 +717,7 @@
    "announce" cmd-announce "receive" cmd-receive
    "ws-gc" cmd-ws-gc "checkpoint" cmd-checkpoint
    "list" cmd-list "sync" cmd-sync
-   "keygen" cmd-keygen
+   "keygen" cmd-keygen "enroll" cmd-enroll
    "grant" cmd-grant
    "propose" cmd-propose
    "govern" cmd-govern
