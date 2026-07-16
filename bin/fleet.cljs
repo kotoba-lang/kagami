@@ -817,9 +817,17 @@
   "Phase 3a: self-certifying signed head over the fleet-db content —
   the record a p2p head-announce (kotoba-lang/p2p) carries between fleet
   machines. --verify checks signature + content hash against the db file."
-  [{:keys [db key kagi out verify] :as opts}]
+  [{:keys [db key kagi out verify delta-log] :as opts}]
   (let [headf (or out (str/replace db #"\.edn$" ".head.edn"))
-        content-hash (node-sha256 (slurp* db))]
+        db-hash (node-sha256 (slurp* db))
+        ;; ③ fold the delta op-log head into the signed fleet head, so one
+        ;; signature certifies the manifest (fleet-db) AND the edit provenance
+        ;; (op-log). value = H(db-hash | delta:H(op-log)) when --delta-log given.
+        delta-hash (when (and delta-log (fs/existsSync delta-log))
+                     (node-sha256 (slurp* delta-log)))
+        content-hash (if delta-hash
+                       (node-sha256 (str db-hash "|delta:" delta-hash))
+                       db-hash)]
     (if verify
       (let [{:keys [record signature signer]} (reader/read-string (slurp* headf))]
         (cond
@@ -830,7 +838,9 @@
           (not (node-verify (did/did->pubkey-hex signer) (pin/canonical-str record) signature))
           (do (js/console.error "HEAD SIGNATURE INVALID") (js/process.exit 1))
           :else (println "head OK: seq" (:pin/sequence record) "value"
-                         (subs content-hash 0 12) "signer" signer)))
+                         (subs content-hash 0 12)
+                         (if delta-hash (str "(manifest+delta:" (subs delta-hash 0 8) ")") "")
+                         "signer" signer)))
       (do
         (when-not (and db (or key kagi)) (die "head needs --db (--key PEM|--kagi NAME) [--out] | --verify"))
         (let [pem  (read-key opts)
@@ -844,7 +854,9 @@
               head {:record rec :signature sig :signer (did-of-priv pem)}]
           (spit* headf (pr-str head))
           (println "head announced: seq" (:pin/sequence rec) "value"
-                   (subs content-hash 0 12) "->" headf))))))
+                   (subs content-hash 0 12)
+                   (if delta-hash (str "(manifest+delta:" (subs delta-hash 0 8) ")") "")
+                   "->" headf))))))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase 3b: fleet head gossip (wire-compatible with kotoba-lang/p2p)

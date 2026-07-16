@@ -71,6 +71,17 @@ nbb --classpath src:test run-tests.cljs
   quorum / sequence / parent / reachability / value-advance）。
 - 残: workspace manager（GC / checkpoint / best-of-N）と鍵の 1Password 移設。
 
+## delta provenance を fleet head に折り込む（③, ADR-2607160005）
+
+`fleet head --delta-log <ops.edn>` で **op-log head を signed fleet head に
+折り込む**。head の value = H(db-hash | delta:H(op-log)) となり、**一つの署名が
+manifest（fleet-db）と編集 provenance（kotoba-delta op-log）を同時に証明**する。
+実測: op-log を改竄すると head verify が MISMATCH（head が provenance を証明）。
+capture 常用化: PostToolUse hook（`.claude/hooks/delta-capture-post-tool.cljs`、
+fail-open・opt-in）を `DELTA_CAPTURE=1 DELTA_KEY=<pem> DELTA_LOG=.claude/delta-ops.edn`
+で有効化すると Edit/Write が署名 op として記録され、その `.claude/delta-ops.edn` を
+`fleet head --delta-log` が折り込む。
+
 ## live backend — kotobase commit chain 永続化（ADR-2607160005）
 
 fleet-db を EDN blob でなく **実 kotobase-peer commit chain（content-addressed・
