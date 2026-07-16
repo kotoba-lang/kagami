@@ -23,13 +23,30 @@
       (when-let [c (obj/read-commit db cid)]{:kind :commit :cid cid :commit
                                              (select-keys c [:tree :parents :author :message :ts])})))
 
+(defn visible-to?
+  "Access control for private-repo object transfer (Radicle visibility model,
+  B in the daily-driver plan). A public repo is visible to everyone; a private
+  repo only to dids in its allow set. visibility:
+    {:private? bool :allow #{did ...}}  (nil / absent = public)."
+  [visibility peer-did]
+  (or (nil? visibility)
+      (not (:private? visibility))
+      (contains? (:allow visibility) peer-did)))
+
 (defn pack
   "Objects the peer needs to reconstruct head-cid, given the CIDs it `have`s.
-  Returns a transfer bundle [obj ...] (each obj as read-object)."
-  [db head-cid have]
-  (->> (glog/missing-since db head-cid have)
-       (keep #(read-object db %))
-       vec))
+  Returns a transfer bundle [obj ...] (each obj as read-object).
+  3-arity is public (back-compat). 5-arity gates a PRIVATE repo: throws if
+  the requesting peer-did is not in the repo's visibility allow set — a
+  private repo's blocks are never served to a non-allowed peer."
+  ([db head-cid have] (pack db head-cid have nil nil))
+  ([db head-cid have visibility peer-did]
+   (when-not (visible-to? visibility peer-did)
+     (throw (ex-info "private repo: peer not in visibility allow set — refusing to serve objects"
+                     {:peer peer-did :private? true})))
+   (->> (glog/missing-since db head-cid have)
+        (keep #(read-object db %))
+        vec)))
 
 (defn unpack
   "Apply a transfer bundle into a receiver db. Content-addressed writes are

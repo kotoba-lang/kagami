@@ -48,3 +48,21 @@
 
   (println (if (zero? @fails) "\nALL GREEN" "\nFAILURES"))
   (when (pos? @fails) (js/process.exit 1)))
+
+;; B: private-repo visibility gating
+(let [[d1 b1]  (blob (repo/empty-repo) "secret v1")
+      [d2 t1]  (obj/write-tree d1 [{:name "s.txt" :cid b1 :kind :blob}])
+      [dP cP]  (obj/write-commit d2 {:tree t1 :parents [] :author "A" :message "s" :ts 1})
+      priv {:private? true :allow #{"did:key:allowed"}}]
+  (println "\nB: private-repo visibility gating")
+  (ok (try (fo/pack dP cP #{} priv "did:key:allowed") true (catch :default _ false))
+      "allowed peer CAN pull private objects")
+  (ok (try (fo/pack dP cP #{} priv "did:key:stranger") false
+           (catch :default e (re-find #"not in visibility" (str e))))
+      "non-allowed peer REFUSED private objects")
+  (ok (try (fo/pack dP cP #{} nil "did:key:anyone") true (catch :default _ false))
+      "public repo (no visibility) serves anyone")
+  (ok (fo/visible-to? nil "x") "visible-to?: public visible to all")
+  (ok (not (fo/visible-to? priv "did:key:stranger")) "visible-to?: private hidden from stranger"))
+
+(when (pos? @fails) (js/process.exit 1))

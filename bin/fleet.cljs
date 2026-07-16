@@ -546,6 +546,32 @@
                          "quorum" (count (:valid-signers verdict)) "/"
                          (:threshold policy) "seq" (:pin/sequence record))))))))))
 
+(defn cmd-verify-pins
+  "A (daily-driver): verify each named repo's pin is reachable from its
+  upstream default branch. STRICT when the gh token can read the repo:
+  CONFIRMED unreachable -> exit 1. Private cross-org repos a scoped CI
+  token can't see return :unknown -> WARN passthrough (west convention;
+  set FLEET_PIN_TOKEN as GH_TOKEN to make private checks strict too)."
+  [{:keys [db repos]}]
+  (when-not (and db repos) (die "verify-pins needs --db --repos a,b,c"))
+  (let [d (load-db db)
+        names (str/split repos #",")]
+    (-> (p/all
+         (for [nm names]
+           (let [e (west/find-repo d nm)]
+             (if-not e (p/resolved {:repo nm :verdict :unknown-repo})
+                 (p/let [r (gh-reachable? (org-repo-of d e) (:repo/revision e))]
+                   {:repo nm :verdict (case r true :ok false :unreachable :unknown :warn)})))))
+        (p/then (fn [results]
+                  (doseq [{:keys [repo verdict]} results]
+                    (println (case verdict :ok "OK  " :warn "WARN" :unreachable "FAIL"
+                                   :unknown-repo "MISS") repo
+                             (when (= verdict :warn) "(private/unverifiable — token can't read; fail-open)")))
+                  (let [bad (filter #(= :unreachable (:verdict %)) results)]
+                    (when (seq bad)
+                      (js/console.error "CONFIRMED unreachable pins:" (pr-str (map :repo bad)))
+                      (js/process.exit 1))))))))
+
 ;; ---------------------------------------------------------------------------
 ;; Phase 2 remainder: workspace GC + checkpoints (Plane 3)
 
@@ -621,21 +647,31 @@
   nothing. --enforce: the HARD-FLIP switch — drift is a REJECTION, not an
   absorption (legacy writes forbidden; fleet-db is the sole writer). Flip
   the CI to --enforce only after every writer session is enrolled."
-  [{:keys [db west check enforce]}]
-  (when-not (and db west) (die "reconcile needs --db --west [--check|--enforce]"))
+  [{:keys [db west check enforce enforce-orgs]}]
+  (when-not (and db west) (die "reconcile needs --db --west [--check|--enforce] [--enforce-orgs a,b]"))
   (when-not (or check enforce) (lock-db! db))
   (let [d-old (load-db db)
         d-new (west/parse (slurp* west))
-        diff  (db/diff-dbs d-old d-new)]
+        full-diff (db/diff-dbs d-old d-new)
+        ;; staged hard flip (D): --enforce-orgs restricts the REJECTION scope
+        ;; to specific orgs (e.g. kotoba-lang public first); drift outside
+        ;; scope is still absorbed. --enforce alone = all orgs.
+        enforce-diff (if enforce-orgs
+                       (db/scope-diff full-diff d-new (set (str/split enforce-orgs #",")))
+                       full-diff)
+        diff full-diff]
     (if-not (db/drift? diff)
       (println "clean: fleet-db == projection of" west)
       (let [summary {:changed (count (:changed diff)) :added (count (:added diff))
                      :removed (count (:removed diff)) :meta (:meta-changed? diff)}]
-        (when enforce
-          (js/console.error "FLIP VIOLATION: west.yml was written outside the signed fleet-db path")
-          (js/console.error "  drift:" (pr-str summary))
-          (doseq [c (:changed diff)] (js/console.error "  pin" (:name c) "changed via legacy path"))
-          (js/console.error "  advance pins with `fleet pin-advance` (signed), not gen --entry")
+        (when (and (or enforce enforce-orgs) (db/drift? enforce-diff))
+          (js/console.error "FLIP VIOLATION: west.yml written outside the signed fleet-db path"
+                            (if enforce-orgs (str "(enforced orgs: " enforce-orgs ")") ""))
+          (js/console.error "  in-scope drift:" (pr-str {:changed (count (:changed enforce-diff))
+                                                         :added (count (:added enforce-diff))
+                                                         :removed (count (:removed enforce-diff))}))
+          (doseq [c (:changed enforce-diff)] (js/console.error "  pin" (:name c) "changed via legacy path"))
+          (js/console.error "  advance in-scope pins with `fleet pin-advance` (signed), not gen --entry")
           (js/process.exit 1))
         (if check
           (do (println "DRIFT:" (pr-str summary))
@@ -722,7 +758,7 @@
 
 (def commands
   {"import" cmd-import "check" cmd-check "stats" cmd-stats
-   "reconcile" cmd-reconcile "head" cmd-head
+   "reconcile" cmd-reconcile "head" cmd-head "verify-pins" cmd-verify-pins
    "announce" cmd-announce "receive" cmd-receive
    "ws-gc" cmd-ws-gc "checkpoint" cmd-checkpoint
    "list" cmd-list "sync" cmd-sync

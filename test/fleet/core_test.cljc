@@ -378,3 +378,21 @@
     (testing "governance wins: enrolled key cannot override an existing grant"
       (let [collide (update-in keyring [:keys "ed25519:gov"] #(or % {:grants #{"orgs/evil/*"}}))]
         (is (= #{"orgs/*"} (get-in collide [:keys "ed25519:gov" :grants])))))))
+
+(deftest scope-diff-staged-flip
+  (let [d0 (west/parse fixture)
+        ;; drift: change a kotoba-lang pin AND a gftdcojp pin
+        d1 (-> d0
+               (db/apply-pin-advance {:repo/name "plain" :pin/new "f111111111111111111111111111111111111111"})
+               (db/apply-pin-advance {:repo/name "annexed" :pin/new "f222222222222222222222222222222222222222"}))
+        full (db/diff-dbs d0 d1)
+        kl-only (db/scope-diff full d1 #{"kotoba-lang"})]
+    (testing "full diff sees both orgs' drift"
+      (is (= 2 (count (:changed full)))))
+    (testing "scoped to kotoba-lang: only the kotoba-lang pin is in-scope"
+      (is (= ["plain"] (map :name (:changed kl-only))))
+      (is (db/drift? kl-only)))
+    (testing "scoped to gftdcojp: only the gftdcojp pin"
+      (is (= ["annexed"] (map :name (:changed (db/scope-diff full d1 #{"gftdcojp"}))))))
+    (testing "scoped to an untouched org: no in-scope drift (would not reject)"
+      (is (not (db/drift? (db/scope-diff full d1 #{"etzhayyim"})))))))

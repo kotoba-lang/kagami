@@ -120,6 +120,18 @@
 (defn drift? [{:keys [changed added removed meta-changed?]}]
   (boolean (or (seq changed) (seq added) (seq removed) meta-changed?)))
 
+(defn scope-diff
+  "Restrict a diff to repos under orgs/<org>/ for a set of orgs (staged
+  hard flip, D): enforce those orgs while others stay in absorb mode.
+  `db-new` resolves paths for :changed entries (which carry only :name)."
+  [diff db-new orgs]
+  (let [path-of (into {} (map (juxt :repo/name :repo/path)) (:fleet/repos db-new))
+        in-scope? (fn [path] (some #(str/starts-with? (str path) (str "orgs/" % "/")) orgs))]
+    {:changed (filterv #(in-scope? (path-of (:name %))) (:changed diff))
+     :added   (filterv #(in-scope? (:repo/path %)) (:added diff))
+     :removed (filterv #(in-scope? (path-of %)) (:removed diff))
+     :meta-changed? false}))
+
 (defn reconcile-events
   "Ledger events absorbing legacy-path drift (attributed, unsigned —
   the signed path is the preferred writer; these keep fleet-db lossless)."

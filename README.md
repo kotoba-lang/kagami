@@ -66,6 +66,19 @@ nbb --classpath src:test run-tests.cljs
   quorum / sequence / parent / reachability / value-advance）。
 - 残: workspace manager（GC / checkpoint / best-of-N）と鍵の 1Password 移設。
 
+## 日常ドライバ化（reverse-topo: C→B→A→D）
+
+- **C — live query backend**: `bin/query.cljs`（実 datom plane に任意 Datalog +
+  canned）。多節 join（例「heavy かつ datalad」→ m365-archive）が回る。
+- **B — p2p private visibility**: `fleet.objects/pack` 5-arity が private repo の
+  object を **allow-set 外の peer に配らない**（Radicle visibility model）。
+- **A — CI strict pin verify**: `fleet verify-pins`（CONFIRMED unreachable で
+  exit 1、private が見えない :unknown は WARN）。CI は `FLEET_PIN_TOKEN`
+  （org-read PAT、owner 提供）があれば private も strict、無ければ fail-open。
+- **D — staged hard flip**: `fleet reconcile --enforce-orgs kotoba-lang` で
+  **kotoba-lang(public) だけ legacy 書き込みを REJECT**、混在/private org は
+  吸収モードのまま。全 enroll + CI strict 後に段階拡大。
+
 ## ⑯ kotobase persistence (datom plane + Datalog)
 
 - `fleet.kdb`: fleet-db EDN read-model を **実 datom plane**（kotobase-peer
