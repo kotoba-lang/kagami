@@ -25,6 +25,7 @@
             [fleet.pin :as pin]
             [fleet.sync :as sync]
             [fleet.west :as west]
+            [fleet.ws :as ws]
             [promesa.core :as p]))
 
 ;; ---------------------------------------------------------------------------
@@ -457,6 +458,72 @@
                          (:threshold policy) "seq" (:pin/sequence record))))))))))
 
 ;; ---------------------------------------------------------------------------
+;; Phase 2 remainder: workspace GC + checkpoints (Plane 3)
+
+(defn- dir-dirty? [ws-dir]
+  ;; any git checkout under <ws>/orgs/*/* with porcelain output
+  (let [orgs (path/join ws-dir "orgs")]
+    (if-not (fs/existsSync orgs)
+      (p/resolved false)
+      (p/let [repos (p/resolved
+                     (for [org (js->clj (fs/readdirSync orgs))
+                           :let [od (path/join orgs org)]
+                           :when (.isDirectory (fs/statSync od))
+                           r (js->clj (fs/readdirSync od))]
+                       (path/join od r)))
+              flags (p/all (for [r repos]
+                             (p/let [s (sh ["git" "-C" r "status" "--porcelain"])]
+                               (not (str/blank? (:out s))))))]
+        (boolean (some true? flags))))))
+
+(defn cmd-ws-gc
+  "Cursor-style workspace GC: age + count caps, dirty never removed."
+  [{:keys [root max-age-h max-count dry-run]}]
+  (when-not root (die "ws-gc needs --root [--max-age-h N] [--max-count N] [--dry-run]"))
+  (let [now (js/Date.now)
+        entries (for [d (js->clj (fs/readdirSync root))
+                      :let [p (path/join root d)]
+                      :when (.isDirectory (fs/statSync p))]
+                  {:path p :age-h (/ (- now (.-mtimeMs (fs/statSync p))) 3600000.0)})]
+    (-> (p/all (for [e entries]
+                 (p/let [d? (dir-dirty? (:path e))] (assoc e :dirty? d?))))
+        (p/then
+         (fn [wss]
+           (let [plan (ws/gc-plan (vec wss)
+                                  {:max-age-h (when max-age-h (js/parseFloat max-age-h))
+                                   :max-count (when max-count (js/parseInt max-count))})]
+             (doseq [p (:remove plan)]
+               (if dry-run
+                 (println "would remove" p)
+                 (do (fs/rmSync p #js {:recursive true :force true})
+                     (println "removed" p))))
+             (println "kept" (count (:keep plan)) "/ dirty-skipped"
+                      (count (:skipped-dirty plan)) "/ removed" (count (:remove plan)))))))))
+
+(defn cmd-checkpoint
+  "Conversation-scoped snapshot outside git (Cursor checkpoints pattern).
+  create: --dir <workspace> --store <dir>; restore: --restore <tgz> --dir <ws>."
+  [{:keys [dir store restore]}]
+  (cond
+    restore
+    (do (when-not dir (die "checkpoint --restore needs --dir"))
+        (p/let [_ (p/resolved (fs/rmSync dir #js {:recursive true :force true}))
+                _ (p/resolved (fs/mkdirSync dir #js {:recursive true}))
+                r (sh ["tar" "xzf" restore "-C" dir])]
+          (if (:ok? r)
+            (println "restored" restore "->" dir)
+            (do (js/console.error "restore failed:" (:err r)) (js/process.exit 1)))))
+    (and dir store)
+    (let [_ (fs/mkdirSync store #js {:recursive true})
+          f (path/join store (str "ckpt-" (.toISOString (js/Date.))
+                                  ".tgz"))]
+      (p/let [r (sh ["tar" "czf" f "-C" dir "."])]
+        (if (:ok? r)
+          (println "checkpoint:" f)
+          (do (js/console.error "checkpoint failed:" (:err r)) (js/process.exit 1)))))
+    :else (die "checkpoint needs --dir --store | --restore <tgz> --dir <ws>")))
+
+;; ---------------------------------------------------------------------------
 ;; Phase 1.5 reconcile + Phase 3a signed fleet head
 
 (defn cmd-reconcile
@@ -520,6 +587,7 @@
 (def commands
   {"import" cmd-import "check" cmd-check "stats" cmd-stats
    "reconcile" cmd-reconcile "head" cmd-head
+   "ws-gc" cmd-ws-gc "checkpoint" cmd-checkpoint
    "list" cmd-list "sync" cmd-sync
    "keygen" cmd-keygen
    "grant" cmd-grant

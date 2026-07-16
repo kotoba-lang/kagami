@@ -6,6 +6,7 @@
             [fleet.grant :as grant]
             [fleet.pin :as pin]
             [fleet.sync :as sync]
+            [fleet.ws :as ws]
             [fleet.west :as west]))
 
 (def fixture
@@ -298,3 +299,17 @@
       (is (= [:pin/reconcile-legacy :repo/added-legacy :repo/removed-legacy]
              (mapv :event/type evs))))
     (is (not (db/drift? (db/diff-dbs d0 d0))))))
+
+(deftest ws-gc-policy
+  (let [wss [{:path "a" :age-h 1 :dirty? false}
+             {:path "b" :age-h 10 :dirty? false}
+             {:path "c" :age-h 30 :dirty? true}
+             {:path "d" :age-h 50 :dirty? false}
+             {:path "e" :age-h 5 :dirty? false}]]
+    (testing "expired removed, dirty never, count cap enforced oldest-first"
+      (let [{:keys [remove keep skipped-dirty]} (ws/gc-plan wss {:max-age-h 24 :max-count 2})]
+        (is (= ["d" "b"] remove))          ;; d expired; b over count-cap (oldest alive)
+        (is (= ["a" "e"] keep))
+        (is (= ["c"] skipped-dirty))))
+    (testing "no caps -> keep all clean"
+      (is (empty? (:remove (ws/gc-plan wss {})))))))
