@@ -42,6 +42,15 @@
     "      clone-depth: 1"
     "      groups: [kotoba-lang]"
     "      submodules: true"
+    "    - name: selective-sub"
+    "      remote: kotoba-lang"
+    "      revision: ffffffffffffffffffffffffffffffffffffffff"
+    "      path: orgs/kotoba-lang/selective-sub"
+    "      clone-depth: 1"
+    "      groups: [kotoba-lang]"
+    "      submodules:"
+    "        - path: 50-infra/a/lib/forge-std"
+    "        - path: 50-infra/b/lib/forge-std"
     "    - name: annexed"
     "      remote: gftdcojp"
     "      revision: cccccccccccccccccccccccccccccccccccccccc"
@@ -75,12 +84,19 @@
 (deftest parse-shapes
   (let [d (west/parse fixture)]
     (testing "entity fields"
-      (is (= 5 (count (:fleet/repos d))))
+      (is (= 6 (count (:fleet/repos d))))
       (is (= {:repo/name "heavy-sub" :repo/remote "kotoba-lang"
               :repo/revision "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
               :repo/path "orgs/kotoba-lang/heavy-sub" :repo/clone-depth 1
               :repo/groups ["kotoba-lang"] :repo/submodules? true}
              (west/find-repo d "heavy-sub")))
+      (is (= {:repo/name "selective-sub" :repo/remote "kotoba-lang"
+              :repo/revision "ffffffffffffffffffffffffffffffffffffffff"
+              :repo/path "orgs/kotoba-lang/selective-sub" :repo/clone-depth 1
+              :repo/groups ["kotoba-lang"] :repo/submodules? true
+              :repo/submodule-paths ["50-infra/a/lib/forge-std"
+                                     "50-infra/b/lib/forge-std"]}
+             (west/find-repo d "selective-sub")))
       (is (= {:datalad true :annex-remote "b2"}
              (:repo/userdata (west/find-repo d "annexed"))))
       (is (= {:archived true} (:repo/userdata (west/find-repo d "retired"))))
@@ -91,7 +107,7 @@
       (is (= "git@github.com:gftdcojp/aliased"
              (west/remote-url d (west/find-repo d "gftdcojp-aliased")))))
     (testing "queries"
-      (is (= {:repos 5 :orgs 2 :heavy 1 :datalad 1 :archived 1} (db/stats d)))
+      (is (= {:repos 6 :orgs 2 :heavy 2 :datalad 1 :archived 1} (db/stats d)))
       (is (= ["annexed" "retired" "gftdcojp-aliased"]
              (mapv :repo/name (db/by-org d "gftdcojp")))))))
 
@@ -130,7 +146,7 @@
     (testing "clean behind pin -> advance"
       (is (= :advance (:action (sync/plan d e {:exists? true :dirty? false :head "old"} "/ws/p")))))
     (testing "working-set selectors"
-      (is (= ["plain" "heavy-sub"]
+      (is (= ["plain" "heavy-sub" "selective-sub"]
              (mapv :repo/name (sync/working-set d {:org "kotoba-lang"}))))
       (is (= ["annexed"] (mapv :repo/name (sync/working-set d {:group "datalad"}))))
       (is (= ["retired"] (mapv :repo/name (sync/working-set d {:names ["retired"]})))))))
