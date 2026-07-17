@@ -7,7 +7,12 @@
   ADR-2607160005). Header (everything before the `  projects:` line) and footer
   (the `  self:` block) are carried verbatim; project entries are parsed into
   repo entities (see fleet.db) and re-emitted in the generator's field order:
-  name, remote, revision, path, clone-depth?, groups, submodules?, userdata?."
+  name, remote, revision, path, clone-depth?, groups, submodules?, userdata?.
+
+  Submodules appear in two generator forms:
+  - `submodules: true`  (recurse all)
+  - `submodules:` + indented `- path: <rel>` list (selective exclude form from
+    gen-west-manifest.cljs when submodule-excludes is set)."
   (:require [clojure.string :as str]))
 
 (def ^:private projects-line "  projects:")
@@ -54,6 +59,17 @@
 
           (= t "submodules: true")
           (recur (assoc entity :repo/submodules? true) more)
+
+          ;; selective submodule path list (gen-west-manifest exclude form):
+          ;;   submodules:
+          ;;     - path: 50-infra/.../lib/forge-std
+          (= t "submodules:")
+          (recur (assoc entity :repo/submodules? true :repo/submodule-paths []) more)
+
+          (str/starts-with? t "- path: ")
+          (recur (update entity :repo/submodule-paths (fnil conj [])
+                         (subs t (count "- path: ")))
+                 more)
 
           (= t "userdata:")
           (recur (assoc entity :repo/userdata {}) more)
@@ -122,7 +138,8 @@
 
 (defn emit-entry
   "repo entity -> project block lines, in the generator's field order."
-  [{:repo/keys [name remote repo-path revision path clone-depth groups submodules? userdata]}]
+  [{:repo/keys [name remote repo-path revision path clone-depth groups
+                submodules? submodule-paths userdata]}]
   (cond-> [(str "    - name: " name)
            (str "      remote: " remote)]
     repo-path   (conj (str "      repo-path: " repo-path))
@@ -130,7 +147,11 @@
                        (str "      path: " path)])
     clone-depth (conj (str "      clone-depth: " clone-depth))
     groups      (conj (str "      groups: [" (str/join ", " groups) "]"))
-    submodules? (conj "      submodules: true")
+    (seq submodule-paths)
+    (into (into ["      submodules:"]
+                (map (fn [p] (str "        - path: " p)) submodule-paths)))
+    (and submodules? (empty? submodule-paths))
+    (conj "      submodules: true")
     userdata    (into (cond-> ["      userdata:"]
                         (contains? userdata :datalad)
                         (conj (str "        datalad: " (:datalad userdata)))
