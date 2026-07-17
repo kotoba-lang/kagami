@@ -702,8 +702,22 @@
         pem (read-key opts)
         signer (did/pubkey-hex->did (pubkey-hex-of-priv pem))
         outf (or out (str/replace db #"[^/]+$" "fleet-ci.edn"))
+        ;; Each line is parsed independently and defensively: cljs.reader is
+        ;; stricter than the pr-str writer here allows (e.g. a `:gate/<name>`
+        ;; keyword containing '@' round-trips through pr-str fine but cljs.reader
+        ;; rejects it on re-read) — one malformed historical line must not brick
+        ;; every future append. Skip unparsable lines (warn to stderr) rather than
+        ;; crashing; the chain link (:parent) simply restarts from the last
+        ;; parseable receipt. History itself is never rewritten.
         prev (when (fs/existsSync outf)
-               (last (mapv reader/read-string (remove str/blank? (str/split (slurp* outf) #"\n")))))]
+               (->> (str/split (slurp* outf) #"\n")
+                    (remove str/blank?)
+                    (keep (fn [line]
+                            (try (reader/read-string line)
+                                 (catch :default e
+                                   (js/console.error "fleet: skipping unparsable fleet-ci.edn line (chain restarts here):" (ex-message e))
+                                   nil))))
+                    last))]
     (-> (p/all
          (concat
           (for [nm names]
