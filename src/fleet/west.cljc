@@ -52,8 +52,18 @@
           (str/starts-with? t "groups: ")
           (recur (assoc entity :repo/groups (parse-groups (subs t (count "groups: ")))) more)
 
+          ;; Boolean form: submodules: true
           (= t "submodules: true")
           (recur (assoc entity :repo/submodules? true) more)
+
+          ;; List form (etzhayyim/root): submodules: / - path: <relpath>
+          (= t "submodules:")
+          (recur (assoc entity :repo/submodules? true :repo/submodule-paths []) more)
+
+          (str/starts-with? t "- path: ")
+          (recur (update entity :repo/submodule-paths (fnil conj [])
+                         (subs t (count "- path: ")))
+                 more)
 
           (= t "userdata:")
           (recur (assoc entity :repo/userdata {}) more)
@@ -122,7 +132,8 @@
 
 (defn emit-entry
   "repo entity -> project block lines, in the generator's field order."
-  [{:repo/keys [name remote repo-path revision path clone-depth groups submodules? userdata]}]
+  [{:repo/keys [name remote repo-path revision path clone-depth groups
+                submodules? submodule-paths userdata]}]
   (cond-> [(str "    - name: " name)
            (str "      remote: " remote)]
     repo-path   (conj (str "      repo-path: " repo-path))
@@ -130,7 +141,13 @@
                        (str "      path: " path)])
     clone-depth (conj (str "      clone-depth: " clone-depth))
     groups      (conj (str "      groups: [" (str/join ", " groups) "]"))
-    submodules? (conj "      submodules: true")
+    ;; Prefer list form when paths are present (bijection with etzhayyim/root);
+    ;; otherwise the boolean form used by most repos.
+    (and submodules? (seq submodule-paths))
+    (into (into ["      submodules:"]
+                (map (fn [p] (str "        - path: " p)) submodule-paths)))
+    (and submodules? (empty? submodule-paths))
+    (conj "      submodules: true")
     userdata    (into (cond-> ["      userdata:"]
                         (contains? userdata :datalad)
                         (conj (str "        datalad: " (:datalad userdata)))

@@ -41,6 +41,15 @@
     "      clone-depth: 1"
     "      groups: [kotoba-lang]"
     "      submodules: true"
+    "    - name: root-with-submodule-paths"
+    "      remote: etzhayyim"
+    "      revision: ffffffffffffffffffffffffffffffffffffffff"
+    "      path: orgs/etzhayyim/root"
+    "      clone-depth: 1"
+    "      groups: [etzhayyim]"
+    "      submodules:"
+    "        - path: 50-infra/lib/forge-std"
+    "        - path: 50-infra/lib/openzeppelin"
     "    - name: annexed"
     "      remote: gftdcojp"
     "      revision: cccccccccccccccccccccccccccccccccccccccc"
@@ -74,12 +83,15 @@
 (deftest parse-shapes
   (let [d (west/parse fixture)]
     (testing "entity fields"
-      (is (= 5 (count (:fleet/repos d))))
+      (is (= 6 (count (:fleet/repos d))))
       (is (= {:repo/name "heavy-sub" :repo/remote "kotoba-lang"
               :repo/revision "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
               :repo/path "orgs/kotoba-lang/heavy-sub" :repo/clone-depth 1
               :repo/groups ["kotoba-lang"] :repo/submodules? true}
              (west/find-repo d "heavy-sub")))
+      (is (= true (:repo/submodules? (west/find-repo d "root-with-submodule-paths"))))
+      (is (= ["50-infra/lib/forge-std" "50-infra/lib/openzeppelin"]
+             (:repo/submodule-paths (west/find-repo d "root-with-submodule-paths"))))
       (is (= {:datalad true :annex-remote "b2"}
              (:repo/userdata (west/find-repo d "annexed"))))
       (is (= {:archived true} (:repo/userdata (west/find-repo d "retired"))))
@@ -90,7 +102,7 @@
       (is (= "git@github.com:gftdcojp/aliased"
              (west/remote-url d (west/find-repo d "gftdcojp-aliased")))))
     (testing "queries"
-      (is (= {:repos 5 :orgs 2 :heavy 1 :datalad 1 :archived 1} (db/stats d)))
+      (is (= {:repos 6 :orgs 2 :heavy 2 :datalad 1 :archived 1} (db/stats d)))
       (is (= ["annexed" "retired" "gftdcojp-aliased"]
              (mapv :repo/name (db/by-org d "gftdcojp")))))))
 
