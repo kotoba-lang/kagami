@@ -89,6 +89,14 @@
                            (= "true" (subs t (count "archived: "))))
                  more)
 
+          ;; Radicle 実登録の RID(rad:z...)。正本は superproject の
+          ;; manifest/repos.edn :manifest.repos/rad-rids で、west.yml は
+          ;; その projection — reconcile はここから fleet-db へ吸収する。
+          (str/starts-with? t "rad-rid: ")
+          (recur (assoc-in entity [:repo/userdata :rad-rid]
+                           (subs t (count "rad-rid: ")))
+                 more)
+
           :else
           (throw (ex-info "unrecognized west.yml project field (generator dialect drift?)"
                           {:line line :entity entity})))))))
@@ -158,7 +166,9 @@
                         (contains? userdata :annex-remote)
                         (conj (str "        annex-remote: " (:annex-remote userdata)))
                         (contains? userdata :archived)
-                        (conj (str "        archived: " (:archived userdata)))))))
+                        (conj (str "        archived: " (:archived userdata)))
+                        (contains? userdata :rad-rid)
+                        (conj (str "        rad-rid: " (:rad-rid userdata)))))))
 
 (defn emit
   "Inverse of `parse` — byte-exact over the generator dialect."
