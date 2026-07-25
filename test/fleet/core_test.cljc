@@ -490,7 +490,24 @@
                 (:reasons (fleet.ci/verify-receipt h vfy (assoc signed :cid "H0") "pkA"))))
       (let [lie (assoc-in signed [:receipt :ci/outcome] :pass)
             lie (assoc-in lie [:receipt :ci/checks] [{:name :pin-reachable/a :outcome :fail}])]
-        (is (not (:ok? (fleet.ci/verify-receipt h vfy lie "pkA"))))))))
+        (is (not (:ok? (fleet.ci/verify-receipt h vfy lie "pkA"))))))
+    (testing "subject extras (tip-driven runner) are covered by the signature"
+      ;; A tip-driven runner records WHICH commit it actually tested in the
+      ;; subject (--subject-extra). That claim is worthless unless the
+      ;; signature covers it: swapping the tested sha must invalidate the CID.
+      (let [tipped (fleet.ci/make-receipt
+                    {:subject {:repos ["a"] :tips {"a" "sha-1"} :trigger :tip-change}
+                     :checks checks :required req :policy "fleet-ci/tip-verify/v1" :at "t"})
+            other  (fleet.ci/make-receipt
+                    {:subject {:repos ["a"] :tips {"a" "sha-2"} :trigger :tip-change}
+                     :checks checks :required req :policy "fleet-ci/tip-verify/v1" :at "t"})
+            s (fleet.ci/sign-receipt h sign "did:key:zA" tipped)]
+        (is (= {"a" "sha-1"} (get-in tipped [:ci/subject :tips])))
+        (is (not= (fleet.ci/receipt-cid h tipped) (fleet.ci/receipt-cid h other)))
+        (is (:ok? (fleet.ci/verify-receipt h vfy s "pkA")))
+        (is (some #{:cid-mismatch}
+                  (:reasons (fleet.ci/verify-receipt
+                             h vfy (assoc s :receipt other) "pkA"))))))))
 
 (deftest scope-diff-repos-tightest-flip
   (let [d0 (west/parse fixture)

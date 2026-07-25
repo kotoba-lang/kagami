@@ -694,9 +694,20 @@
   verdict = required ⊆ passed). Gates produce hinshitsu-evidence-compatible
   checks. Appended to an append-only receipt log (--out, default
   fleet-ci.edn). Follows the cloud-itonami ops-runner pattern (verify ->
-  signed receipt). Exit 1 if the receipt verdict is :fail."
-  [{:keys [db repos key kagi out required gate gate-cwd gate-timeout] :as opts}]
-  (when-not (and db repos (or key kagi)) (die "ci-verify needs --db --repos (--key|--kagi) [--out] [--required a,b] [--gate 'name=cmd']"))
+  signed receipt). Exit 1 if the receipt verdict is :fail.
+
+  --subject-extra <edn-map> merges extra keys into the receipt SUBJECT (which
+  the signature covers), so a caller can record WHAT was actually tested when
+  that is not the pin — e.g. a tip-driven runner recording
+  '{:tips {\"kagami\" \"<sha>\"} :trigger :tip-change}'. Without it a receipt
+  can only say which repos were checked, not at which commit, and the tested
+  SHA would have to be smuggled into gate names.
+  --policy <string> overrides the recorded policy id (default
+  fleet-ci/pin-reachability/v1) so a different verification contract
+  (e.g. fleet-ci/tip-verify/v1) is distinguishable by consumers."
+  [{:keys [db repos key kagi out required gate gate-cwd gate-timeout
+           subject-extra policy] :as opts}]
+  (when-not (and db repos (or key kagi)) (die "ci-verify needs --db --repos (--key|--kagi) [--out] [--required a,b] [--gate 'name=cmd'] [--subject-extra EDN] [--policy ID]"))
   (let [d (load-db db)
         names (str/split repos #",")
         pem (read-key opts)
@@ -736,9 +747,17 @@
          (fn [checks]
            (let [req (if required (set (map keyword (str/split required #",")))
                          (into #{} (map :name) checks))
+                 extra (when subject-extra
+                         (let [m (reader/read-string subject-extra)]
+                           (when-not (map? m)
+                             (die "--subject-extra must be an EDN map"))
+                           m))
                  receipt (ci/make-receipt
-                          {:subject {:repos names :fleet-db-head (node-sha256 (slurp* db))}
-                           :checks checks :required req :policy "fleet-ci/pin-reachability/v1"
+                          {:subject (merge {:repos names
+                                            :fleet-db-head (node-sha256 (slurp* db))}
+                                           extra)
+                           :checks checks :required req
+                           :policy (or policy "fleet-ci/pin-reachability/v1")
                            :at (.toISOString (js/Date.))
                            :parent (:cid prev)})
                  signed (ci/sign-receipt node-sha256 #(node-sign pem %) signer receipt)]
