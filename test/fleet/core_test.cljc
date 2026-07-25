@@ -491,6 +491,18 @@
       (let [lie (assoc-in signed [:receipt :ci/outcome] :pass)
             lie (assoc-in lie [:receipt :ci/checks] [{:name :pin-reachable/a :outcome :fail}])]
         (is (not (:ok? (fleet.ci/verify-receipt h vfy lie "pkA"))))))
+    (testing "gate detail carries the runner's own output tail as evidence"
+      ;; "exit 0" alone cannot distinguish a real pass from ADR-2607178000's
+      ;; false pass (clojure dropping to a REPL in an empty dir also exits 0).
+      ;; 直近 3 行だけ残す（先頭の java -version 行は落ちる）。
+      (is (= "exit 0 — Testing kagitaba.core-test | Ran 18 tests containing 107 assertions. | 0 failures, 0 errors."
+             (fleet.ci/gate-detail 0 (str "openjdk version 26\n\nTesting kagitaba.core-test\n"
+                                          "Ran 18 tests containing 107 assertions.\n0 failures, 0 errors.\n"))))
+      (is (= "exit 0 — (no output)" (fleet.ci/gate-detail 0 "   \n\n")))
+      (is (str/starts-with? (fleet.ci/gate-detail 1 "boom") "exit 1 — boom"))
+      (let [d (fleet.ci/gate-detail 0 (apply str (repeat 400 "x")))]
+        (is (<= (count d) (+ 20 fleet.ci/gate-detail-max)))
+        (is (str/includes? d "…"))))
     (testing "subject extras (tip-driven runner) are covered by the signature"
       ;; A tip-driven runner records WHICH commit it actually tested in the
       ;; subject (--subject-extra). That claim is worthless unless the

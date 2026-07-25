@@ -660,7 +660,14 @@
   kototama HostCaps analog; literal WASM confinement via the kototama Chicory
   tender is the JVM follow-up). Produces a hinshitsu-evidence-compatible check
   map (interop by data shape, not by require — the ops-runner decoupling
-  principle). name=cmd, cwd optional, timeout ms."
+  principle). name=cmd, cwd optional, timeout ms.
+
+  :detail carries `exit <code> — <tail of the gate's own output>`. A bare
+  \"exit 0\" is NOT evidence: ADR-2607178000's false-pass bug (an unstripped
+  tarball left clojure with no deps.edn, so it dropped to a REPL and exited 0
+  on closed stdin) produced receipts that looked identical to real passes.
+  Keeping the tail means the receipt itself shows \"Ran 18 tests containing 107
+  assertions\" — a human or query can tell a real pass from an empty one."
   [gate-name cmd cwd timeout-ms]
   (p/create
    (fn [resolve _]
@@ -683,7 +690,7 @@
        (.on (.-stderr ps) "data" #(swap! out str %))
        (.on ps "close" (fn [code] (js/clearTimeout timer)
                          (finish (if (zero? code) :pass :fail)
-                                 (str "exit " code))))
+                                 (ci/gate-detail code @out))))
        (.on ps "error" (fn [e] (js/clearTimeout timer) (finish :fail (str e))))))))
 
 (defn cmd-ci-verify
