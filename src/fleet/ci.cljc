@@ -33,6 +33,25 @@
     {:passed passed :missing (vec missing)
      :outcome (if (empty? missing) :pass :fail)}))
 
+(def ^:const gate-detail-max 240)
+
+(defn gate-detail
+  "`exit <code> — <last meaningful output lines>`, capped so a receipt stays a
+  receipt (not a log). Keeps the LAST lines because test runners print their
+  summary there. Whitespace-collapsed for one-line EDN readability."
+  [code out]
+  (let [lines (->> (str/split-lines (str/trim (str out)))
+                   (map str/trim)
+                   (remove str/blank?))
+        tail (str/join " | " (take-last 3 lines))
+        tail (str/replace tail #"\s+" " ")
+        tail (if (> (count tail) gate-detail-max)
+               (str "…" (subs tail (- (count tail) gate-detail-max)))
+               tail)]
+    (if (str/blank? tail)
+      (str "exit " code " — (no output)")
+      (str "exit " code " — " tail))))
+
 (defn make-receipt
   "Build an unsigned receipt over a subject and its checks.
   subject: {:repo .. :pin ..} | {:fleet-head cid}.
