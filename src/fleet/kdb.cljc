@@ -29,6 +29,7 @@
       submodules? (conj [:db/add s ":repo/submodules?" true])
       (get userdata :datalad)  (conj [:db/add s ":repo/datalad?" true])
       (get userdata :archived) (conj [:db/add s ":repo/archived?" true])
+      (get userdata :rad-rid)  (conj [:db/add s ":repo/rad-rid" (get userdata :rad-rid)])
       :always (into (map (fn [g] [:db/add s ":repo/group" g]) groups)))))
 
 (defn build-db
