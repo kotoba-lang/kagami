@@ -4,7 +4,7 @@
   (:require [bonsai.object :as obj]
             [bonsai.log :as glog]
             [bonsai.repo :as repo]
-            [fleet.objects :as fo]))
+            [kagami.objects :as fo]))
 
 (defn blob [db s] (obj/write-blob db (js/Buffer.from s "utf8")))
 (def fails (atom 0))

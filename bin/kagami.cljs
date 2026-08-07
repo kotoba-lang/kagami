@@ -19,16 +19,16 @@
             ["node:path" :as path]
             [cljs.reader :as reader]
             [clojure.string :as str]
-            [fleet.db :as db]
-            [fleet.did :as did]
-            [fleet.ci :as ci]
-            [fleet.grant :as grant]
-            [fleet.pin :as pin]
-            [fleet.reach :as reach]
-            [fleet.p2p]
-            [fleet.sync :as sync]
-            [fleet.west :as west]
-            [fleet.ws :as ws]
+            [kagami.db :as db]
+            [kagami.did :as did]
+            [kagami.ci :as ci]
+            [kagami.grant :as grant]
+            [kagami.pin :as pin]
+            [kagami.reach :as reach]
+            [kagami.p2p]
+            [kagami.sync :as sync]
+            [kagami.west :as west]
+            [kagami.ws :as ws]
             [promesa.core :as p]))
 
 ;; ---------------------------------------------------------------------------
@@ -697,7 +697,7 @@
   "Native CI (ADR-2607160005): run pin-reachability checks over the named
   repos — and optional quality GATES (--gate 'name=cmd', capability-bounded
   by --gate-timeout) — then emit a signed, content-addressed verification
-  receipt (fleet.ci, modelled on kotobase code_graph execution-receipt:
+  receipt (kagami.ci, modelled on kotobase code_graph execution-receipt:
   verdict = required ⊆ passed). Gates produce hinshitsu-evidence-compatible
   checks. Appended to an append-only receipt log (--out, default
   fleet-ci.edn). Follows the cloud-itonami ops-runner pattern (verify ->
@@ -977,7 +977,7 @@
   [{:keys [head out node]}]
   (when-not head (die "announce needs --head <fleet-head.edn> [--node ID] [--out msg.edn]"))
   (let [h (reader/read-string (slurp* head))
-        msg (fleet.p2p/head->announce h (or node "this-machine"))]
+        msg (kagami.p2p/head->announce h (or node "this-machine"))]
     (if out (do (spit* out (pr-str msg)) (println "announce ->" out
                                                    "seq" (:seq msg) "cid" (subs (:head-cid msg) 0 12)))
         (println (pr-str msg)))))
@@ -994,11 +994,11 @@
         ctx {:trust trust :verify-fn node-verify
              :did->pubkey #(did/did->pubkey-hex %)}
         node0 (if (and state (fs/existsSync state))
-                (reader/read-string (slurp* state)) (fleet.p2p/new-node "this-machine"))
-        v (fleet.p2p/verify-announce announce ctx)
-        node1 (fleet.p2p/adopt node0 announce ctx)]
+                (reader/read-string (slurp* state)) (kagami.p2p/new-node "this-machine"))
+        v (kagami.p2p/verify-announce announce ctx)
+        node1 (kagami.p2p/adopt node0 announce ctx)]
     (if (:ok? v)
-      (let [h (fleet.p2p/local-head node1)]
+      (let [h (kagami.p2p/local-head node1)]
         (when state (spit* state (pr-str node1)))
         (println "adopted: seq" (:seq h) "cid" (subs (:head-cid h) 0 12)
                  (if (= (:seq h) (:seq announce)) "(advanced)" "(kept newer local)")))

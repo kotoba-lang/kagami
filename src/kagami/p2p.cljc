@@ -1,9 +1,9 @@
-(ns fleet.p2p
+(ns kagami.p2p
   "Phase 3b: gossip replication of the signed fleet head between fleet
   machines (ADR-2607160005). Wire-compatible with kotoba-lang/p2p's
   head-announce: a message is
     {:type :head-announce :graph :head-cid :seq :origin :from :fleet-head}
-  where :fleet-head is the P3a signed head record (fleet.pin shape). Per
+  where :fleet-head is the P3a signed head record (kagami.pin shape). Per
   kotoba-rad.announce's insight, a signed announce IS a sigref — no new
   signing primitive, we carry and verify the existing fleet head.
 
@@ -15,7 +15,7 @@
 
   Pure cljc; verify-fn injected. Trust set = the fleet keyring's roots +
   canonical allow (the dids permitted to announce a canonical fleet head)."
-  (:require [fleet.pin :as pin]))
+  (:require [kagami.pin :as pin]))
 
 (defn head->announce
   "P3a signed head {:record :signature :signer} + node-id -> p2p announce msg."

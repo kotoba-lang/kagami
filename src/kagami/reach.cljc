@@ -1,9 +1,9 @@
-(ns fleet.reach
+(ns kagami.reach
   "Signed reachability receipts (ADR-2607160005): make pin reachability a
   REPLICATED, SIGNED attestation instead of a per-node clone. One node that
   has verified a pin (via reach-local-git) signs a receipt; other fleet nodes
   fetch it over p2p and trust it (signer ∈ trust set, fresh enough) — so they
-  need NEITHER a clone NOR the gh API. This is fleet.ci's receipt shape
+  need NEITHER a clone NOR the gh API. This is kagami.ci's receipt shape
   applied to reachability, and it removes the last per-node GitHub touch the
   clone-based provider still had.
 

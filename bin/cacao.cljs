@@ -2,7 +2,7 @@
 ;; fleet cacao — REAL CAIP-122 CACAO integration (ADR-2607160005). cacao.core
 ;; (org-chainagnostic-cacao) is a portable .cljc and runs under nbb (its
 ;; JVM-only note was stale), so fleet uses the actual CACAO mint/verify/
-;; verify-chain instead of the fleet-native lookalike (fleet.grant). Signing
+;; verify-chain instead of the fleet-native lookalike (kagami.grant). Signing
 ;; keys come from kagi (the ed25519 seed is extracted from the PKCS8 PEM).
 ;; Run with the cacao classpath (cacao/src + ed25519/src + cbor/src).
 ;;   mint  --key-kagi <name>|--key <pem> --aud <did> --resources a,b [--exp iso] [--nonce n] --out cap.edn

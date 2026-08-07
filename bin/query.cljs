@@ -9,8 +9,8 @@
             [cljs.reader :as reader]
             [clojure.string :as str]
             [kotobase-peer.core :as kb]
-            [fleet.kdb :as kdb]
-            [fleet.west :as west]))
+            [kagami.kdb :as kdb]
+            [kagami.west :as west]))
 
 (defn parse-args [argv]
   (loop [o {} [a & m] argv]

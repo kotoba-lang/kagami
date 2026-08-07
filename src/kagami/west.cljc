@@ -1,4 +1,4 @@
-(ns fleet.west
+(ns kagami.west
   "Parser/emitter for the west.yml dialect emitted by scripts/gen-west-manifest.cljs.
 
   This is NOT a general YAML parser. The generator's output is line-oriented and
@@ -6,7 +6,7 @@
   `parse` must reproduce the input byte-for-byte (Phase 0 acceptance criterion,
   ADR-2607160005). Header (everything before the `  projects:` line) and footer
   (the `  self:` block) are carried verbatim; project entries are parsed into
-  repo entities (see fleet.db) and re-emitted in the generator's field order:
+  repo entities (see kagami.db) and re-emitted in the generator's field order:
   name, remote, revision, path, clone-depth?, groups, submodules?, userdata?.
 
   Submodules appear in two generator forms:

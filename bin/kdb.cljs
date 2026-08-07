@@ -7,14 +7,14 @@
 ;;   persist --db fleet-db.edn --blocks <dir> --head <head-ptr.edn>
 ;;   hydrate --blocks <dir> --head <head-ptr.edn> [--out fleet-db-hydrated.edn]
 ;;   verify  --db fleet-db.edn --blocks <dir> --head <head-ptr.edn>
-(ns fleet.kdb-cli
+(ns kagami.kdb-cli
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             [cljs.reader :as reader]
             [clojure.string :as str]
             [kotobase-peer.core :as kb]
-            [fleet.kdb :as kdb]
-            [fleet.west :as west]
+            [kagami.kdb :as kdb]
+            [kagami.west :as west]
             [promesa.core :as p]))
 
 (defn die-usage [] (js/console.error "kdb {persist|hydrate|verify} --db --blocks --head [--out]") (js/process.exit 1))

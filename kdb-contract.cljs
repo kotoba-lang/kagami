@@ -1,13 +1,13 @@
 #!/usr/bin/env nbb
-;; Contract test: fleet.kdb (datom plane) == fleet.db (EDN read model).
+;; Contract test: kagami.kdb (datom plane) == kagami.db (EDN read model).
 ;; Run with the kotobase classpath (see kdb-contract.sh).
 (ns kdb-contract
   (:require ["node:fs" :as fs]
             [cljs.reader :as reader]
             [kotobase-peer.core :as kb]
-            [fleet.db :as fdb]
-            [fleet.kdb :as kdb]
-            [fleet.west :as west]
+            [kagami.db :as fdb]
+            [kagami.kdb :as kdb]
+            [kagami.west :as west]
             [promesa.core :as p]))
 
 (def edn-db (west/parse (fs/readFileSync (first *command-line-args*) "utf8")))

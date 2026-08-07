@@ -1,4 +1,4 @@
-(ns fleet.pin
+(ns kagami.pin
   "Phase 1 (ADR-2607160005): signed pin head records + the admission gate.
 
   A pin advance is no longer a generated line in a YAML file — it is a signed,
