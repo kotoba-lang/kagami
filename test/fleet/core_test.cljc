@@ -189,9 +189,19 @@
     (testing "missing dir -> materialize, pinned SHA fetched directly"
       (let [{:keys [action steps]} (sync/plan d e {:exists? false} "/ws/orgs/kotoba-lang/plain")]
         (is (= :materialize action))
-        (is (= ["git" "-C" "/ws/orgs/kotoba-lang/plain" "fetch" "--depth" "1" "origin"
+        (is (= ["git" "-C" "/ws/orgs/kotoba-lang/plain" "fetch" "origin"
                 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
-               (nth steps 2)))))
+               (nth steps 2))
+            "FULL history — shallow stopped being the default on 2026-07-21
+             (ADR-2607211600), and a planner that kept it would put the grafts
+             back one repo at a time")))
+    (testing "a repo that ASKS for a depth still gets it"
+      (let [heavy (west/find-repo d "heavy-sub")
+            {:keys [steps]} (sync/plan d heavy {:exists? true :dirty? false :head "old"} "/ws/h")]
+        (is (= ["git" "-C" "/ws/h" "fetch" "--depth" "1" "origin"
+                "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"]
+               (first steps))
+            "clone-depth is an entity's own declaration, not a default")))
     (testing "dirty checkout is skipped, never overwritten (west semantics)"
       (is (= :skip-dirty (:action (sync/plan d e {:exists? true :dirty? true :head "x"} "/ws/p")))))
     (testing "clean at pin -> noop"
