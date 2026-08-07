@@ -14,7 +14,7 @@ west 体制の正本はまだ変えない（Phase 0 の設計制約）。pin の
 ## Runtime
 
 第一の実行経路は **nbb**（repo 運用 tooling の正、CLAUDE.md 準拠）。core は
-pure `.cljc`（`fleet.west` / `fleet.db` / `fleet.sync`）で、IO は
+pure `.cljc`（`kagami.west` / `kagami.db` / `kagami.sync`）で、IO は
 `bin/fleet.cljs` に隔離（pure planner + injected runner、`kotoba/git_adapter.cljc`
 と同じ流儀）。
 
@@ -61,9 +61,9 @@ nbb --classpath src:test run-tests.cljs
 
 ## Phase 2 — identity + governed land-back
 
-- `fleet keygen` は did:key も出力（`fleet.did`、base58btc/multicodec）。
+- `fleet keygen` は did:key も出力（`kagami.did`、base58btc/multicodec）。
 - `fleet grant` — owner root から agent への委譲鎖（attenuation・expiry・
-  linkage を `fleet.grant/verify-chain` が検証。cacao-clj と同意味論、
+  linkage を `kagami.grant/verify-chain` が検証。cacao-clj と同意味論、
   CAIP-122 wire format 化は follow-up）。
 - `fleet propose` — grant 保持を検証して land 提案を ledger に記録。
 - `fleet govern` — quorum pre-check（不足なら merge せず abort）→ サーバ側
@@ -96,7 +96,7 @@ durable な backing になる。
 ## governor 統合（既存 ops-runner と相互運用、ADR-2607141700）
 
 fleet の quorum land-back（propose→govern→canonical 前進）を、cloud-itonami
-ops-runner の audit ledger 形式に写す `fleet.governor-bridge/land->ops-receipt`。
+ops-runner の audit ledger 形式に写す `kagami.governor-bridge/land->ops-receipt`。
 **実測: fleet の land-back outcome を ops-runner receipt にすると、本物の
 cloud-itonami.ops-runner/sign-receipt + verify-receipt が nbb 上で TRUE 検証、
 status 改竄は reject**。2つの governance ループ（fleet quorum / ops-runner
@@ -108,7 +108,7 @@ require せず plain-map receipt shape で疎結合（VCS-stack decoupling と�
 **cacao.core（org-chainagnostic-cacao）は既に portable .cljc で nbb 完動**
 （「JVM-only」注記は古い）。移植不要で、`bin/cacao.cljs` が **本物の CAIP-122
 CACAO** を mint/verify/verify-chain する（署名 seed は kagi PEM から抽出）。
-fleet-native lookalike（fleet.grant）でなく実 CACAO を使える。実測: owner が
+fleet-native lookalike（kagami.grant）でなく実 CACAO を使える。実測: owner が
 enrolled agent did に pin+land grant を mint → agent が kagami に attenuate して
 sub-delegate → **CHAIN VALID（depth 2、resources 減衰、expiry 強制）**。
 `grant->cacao-payload`（前述）で fleet grant と CACAO payload を橋渡し。
@@ -117,7 +117,7 @@ sub-delegate → **CHAIN VALID（depth 2、resources 減衰、expiry 強制）**
 ## p2p 実 HTTP transport + clone-free reachability（ADR-2607160005 P3b）
 
 到達性を各ノードが clone で確認する代わりに、**一度確認したノードが署名した
-reachability receipt を p2p で配り他ノードが信頼する**（fleet.ci receipt 型を
+reachability receipt を p2p で配り他ノードが信頼する**（kagami.ci receipt 型を
 到達性に適用）。`fleet reach-emit` が local-git 検証後に署名 receipt を発行、
 `fleet serve`（node http）が `GET /reach?repo=&pin=` / `GET /head` で配信、
 `--reach peer:<url>` が receipt を HTTP 取得して署名・trust・鮮度を検証。
@@ -138,7 +138,7 @@ fallback。**item「FLEET_PIN_TOKEN 発行」は不要になった**。
 
 ## native CI（execution-receipt 型、ADR-2607160005）
 
-- `fleet.ci`: fleet の pin 検証を **content-addressed・署名付き verification
+- `kagami.ci`: fleet の pin 検証を **content-addressed・署名付き verification
   receipt** にする。kotobase code_graph の `put-execution-receipt!` と同型
   （verdict = **required ⊆ passed**、あちらの required-effects ⊆ granted-effects
   に対応）。cloud-itonami ops-runner パターン（verify → 署名 receipt、
@@ -146,7 +146,7 @@ fallback。**item「FLEET_PIN_TOKEN 発行」は不要になった**。
   attestation に置換。
 - `fleet ci-verify --db --repos a,b --kagi <name> [--required a,b]`: pin 到達性
   チェックを走らせ署名 receipt を append-only ログに記録、verdict :fail で
-  exit 1。receipt は IStore stream（`fleet/ci-receipts`）にも載せられる
+  exit 1。receipt は IStore stream（`kagami/ci-receipts`）にも載せられる
   （delta.store と同じ substrate）。private repo も owner 認証で検証済み。
 - `fleet ci-verify --gate ''name=cmd'' [--gate-timeout ms]`: 品質ゲートを
   **capability-bound（timeout budget = kototama HostCaps の analog）**で実行し、
@@ -161,7 +161,7 @@ fallback。**item「FLEET_PIN_TOKEN 発行」は不要になった**。
 
 - **C — live query backend**: `bin/query.cljs`（実 datom plane に任意 Datalog +
   canned）。多節 join（例「heavy かつ datalad」→ m365-archive）が回る。
-- **B — p2p private visibility**: `fleet.objects/pack` 5-arity が private repo の
+- **B — p2p private visibility**: `kagami.objects/pack` 5-arity が private repo の
   object を **allow-set 外の peer に配らない**（Radicle visibility model）。
 - **A — CI strict pin verify**: `fleet verify-pins`（CONFIRMED unreachable で
   exit 1、private が見えない :unknown は WARN）。CI は `FLEET_PIN_TOKEN`
@@ -172,7 +172,7 @@ fallback。**item「FLEET_PIN_TOKEN 発行」は不要になった**。
 
 ## ⑯ kotobase persistence (datom plane + Datalog)
 
-- `fleet.kdb`: fleet-db EDN read-model を **実 datom plane**（kotobase-peer
+- `kagami.kdb`: fleet-db EDN read-model を **実 datom plane**（kotobase-peer
   over arrangement/chain/prolly-tree）に射影。plain-fn クエリを **Datalog**
   （`kb/query`）に置換、~500KB EDN blob を **content-addressed commit chain**
   （`kb/commit!` → CID）で永続化。EDN は ingest/transport 形として残す。
@@ -198,7 +198,7 @@ fallback。**item「FLEET_PIN_TOKEN 発行」は不要になった**。
 
 ## ⑰ object-plane block transfer (kotoba-git)
 
-- `fleet.objects`: P3b の head-cid gossip に **実 object graph 転送**を追加。
+- `kagami.objects`: P3b の head-cid gossip に **実 object graph 転送**を追加。
   `pack db head-cid have` が `kotoba-git.log/missing-since`（プル
   ネゴシエーション primitive）で受信側が欠く object だけを算出、`unpack` が
   受信側 db に書き戻す（content-addressed なので CID 検証付き・冪等）。

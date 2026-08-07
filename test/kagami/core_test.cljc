@@ -1,16 +1,16 @@
-(ns fleet.core-test
+(ns kagami.core-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [fleet.db :as db]
-            [fleet.did :as did]
-            [fleet.grant :as grant]
-            [fleet.p2p]
-            [fleet.ci]
-            [fleet.governor-bridge]
-            [fleet.pin :as pin]
-            [fleet.sync :as sync]
-            [fleet.ws :as ws]
-            [fleet.west :as west]))
+            [kagami.db :as db]
+            [kagami.did :as did]
+            [kagami.grant :as grant]
+            [kagami.p2p]
+            [kagami.ci]
+            [kagami.governor-bridge]
+            [kagami.pin :as pin]
+            [kagami.sync :as sync]
+            [kagami.ws :as ws]
+            [kagami.west :as west]))
 
 (def fixture
   (str/join "\n"
@@ -411,36 +411,36 @@
         ctx {:trust trust :verify-fn fake-verify
              :did->pubkey #(subs % (count "did:key:"))}
         head5 (signed-head "pkOwner" 5 "content-hash-5")
-        ann5  (fleet.p2p/head->announce head5 "machineA")]
+        ann5  (kagami.p2p/head->announce head5 "machineA")]
     (testing "announce shape is p2p-wire-compatible"
       (is (= :head-announce (:type ann5)))
       (is (= "fleet-db" (:graph ann5)))
       (is (= 5 (:seq ann5)))
       (is (= "content-hash-5" (:head-cid ann5))))
     (testing "trusted signed announce verifies"
-      (is (:ok? (fleet.p2p/verify-announce ann5 ctx))))
+      (is (:ok? (kagami.p2p/verify-announce ann5 ctx))))
     (testing "machine B with no head adopts A's head"
-      (let [b (fleet.p2p/adopt (fleet.p2p/new-node "machineB") ann5 ctx)]
-        (is (= 5 (:seq (fleet.p2p/local-head b))))
-        (is (= "content-hash-5" (:head-cid (fleet.p2p/local-head b))))))
+      (let [b (kagami.p2p/adopt (kagami.p2p/new-node "machineB") ann5 ctx)]
+        (is (= 5 (:seq (kagami.p2p/local-head b))))
+        (is (= "content-hash-5" (:head-cid (kagami.p2p/local-head b))))))
     (testing "stale announce (lower seq) is ignored"
-      (let [b (-> (fleet.p2p/new-node "machineB")
-                  (fleet.p2p/adopt ann5 ctx)
-                  (fleet.p2p/adopt (fleet.p2p/head->announce
+      (let [b (-> (kagami.p2p/new-node "machineB")
+                  (kagami.p2p/adopt ann5 ctx)
+                  (kagami.p2p/adopt (kagami.p2p/head->announce
                                     (signed-head "pkOwner" 3 "old") "machineA") ctx))]
-        (is (= 5 (:seq (fleet.p2p/local-head b))))))
+        (is (= 5 (:seq (kagami.p2p/local-head b))))))
     (testing "untrusted signer rejected + not adopted"
-      (let [ann (fleet.p2p/head->announce (signed-head "pkEvil" 9 "evil") "machineX")]
-        (is (some #{:untrusted-signer} (:reasons (fleet.p2p/verify-announce ann ctx))))
-        (is (= 5 (:seq (fleet.p2p/local-head
-                        (fleet.p2p/adopt (fleet.p2p/adopt (fleet.p2p/new-node "b") ann5 ctx)
+      (let [ann (kagami.p2p/head->announce (signed-head "pkEvil" 9 "evil") "machineX")]
+        (is (some #{:untrusted-signer} (:reasons (kagami.p2p/verify-announce ann ctx))))
+        (is (= 5 (:seq (kagami.p2p/local-head
+                        (kagami.p2p/adopt (kagami.p2p/adopt (kagami.p2p/new-node "b") ann5 ctx)
                                          ann ctx)))))))
     (testing "tampered head-cid rejected"
       (let [ann (assoc ann5 :head-cid "swapped")]
-        (is (some #{:head-cid-mismatch} (:reasons (fleet.p2p/verify-announce ann ctx))))))
+        (is (some #{:head-cid-mismatch} (:reasons (kagami.p2p/verify-announce ann ctx))))))
     (testing "forged signature rejected"
       (let [bad (assoc-in ann5 [:fleet-head :signature] "deadbeef")]
-        (is (some #{:bad-signature} (:reasons (fleet.p2p/verify-announce bad ctx))))))))
+        (is (some #{:bad-signature} (:reasons (kagami.p2p/verify-announce bad ctx))))))))
 
 (deftest agent-registry-merge
   ;; merge-registry lives in the CLI; test the pure semantics inline here
@@ -486,49 +486,49 @@
         checks [{:name :pin-reachable/a :outcome :pass}
                 {:name :pin-reachable/b :outcome :pass}]
         req #{:pin-reachable/a :pin-reachable/b}
-        r (fleet.ci/make-receipt {:subject {:repos ["a" "b"]} :checks checks
+        r (kagami.ci/make-receipt {:subject {:repos ["a" "b"]} :checks checks
                                   :required req :policy "p" :at "t"})
-        signed (fleet.ci/sign-receipt h sign "did:key:zA" r)]
+        signed (kagami.ci/sign-receipt h sign "did:key:zA" r)]
     (testing "verdict pass iff required subset passed"
       (is (= :pass (:ci/outcome r)))
-      (is (= :fail (:ci/outcome (fleet.ci/make-receipt
+      (is (= :fail (:ci/outcome (kagami.ci/make-receipt
                                  {:subject {} :checks [{:name :x :outcome :fail}]
                                   :required #{:x} :at "t"})))))
     (testing "signed receipt verifies; tamper + inconsistent-outcome rejected"
-      (is (:ok? (fleet.ci/verify-receipt h vfy signed "pkA")))
+      (is (:ok? (kagami.ci/verify-receipt h vfy signed "pkA")))
       (is (some #{:cid-mismatch}
-                (:reasons (fleet.ci/verify-receipt h vfy (assoc signed :cid "H0") "pkA"))))
+                (:reasons (kagami.ci/verify-receipt h vfy (assoc signed :cid "H0") "pkA"))))
       (let [lie (assoc-in signed [:receipt :ci/outcome] :pass)
             lie (assoc-in lie [:receipt :ci/checks] [{:name :pin-reachable/a :outcome :fail}])]
-        (is (not (:ok? (fleet.ci/verify-receipt h vfy lie "pkA"))))))
+        (is (not (:ok? (kagami.ci/verify-receipt h vfy lie "pkA"))))))
     (testing "gate detail carries the runner's own output tail as evidence"
       ;; "exit 0" alone cannot distinguish a real pass from ADR-2607178000's
       ;; false pass (clojure dropping to a REPL in an empty dir also exits 0).
       ;; 直近 3 行だけ残す（先頭の java -version 行は落ちる）。
       (is (= "exit 0 — Testing kagitaba.core-test | Ran 18 tests containing 107 assertions. | 0 failures, 0 errors."
-             (fleet.ci/gate-detail 0 (str "openjdk version 26\n\nTesting kagitaba.core-test\n"
+             (kagami.ci/gate-detail 0 (str "openjdk version 26\n\nTesting kagitaba.core-test\n"
                                           "Ran 18 tests containing 107 assertions.\n0 failures, 0 errors.\n"))))
-      (is (= "exit 0 — (no output)" (fleet.ci/gate-detail 0 "   \n\n")))
-      (is (str/starts-with? (fleet.ci/gate-detail 1 "boom") "exit 1 — boom"))
-      (let [d (fleet.ci/gate-detail 0 (apply str (repeat 400 "x")))]
-        (is (<= (count d) (+ 20 fleet.ci/gate-detail-max)))
+      (is (= "exit 0 — (no output)" (kagami.ci/gate-detail 0 "   \n\n")))
+      (is (str/starts-with? (kagami.ci/gate-detail 1 "boom") "exit 1 — boom"))
+      (let [d (kagami.ci/gate-detail 0 (apply str (repeat 400 "x")))]
+        (is (<= (count d) (+ 20 kagami.ci/gate-detail-max)))
         (is (str/includes? d "…"))))
     (testing "subject extras (tip-driven runner) are covered by the signature"
       ;; A tip-driven runner records WHICH commit it actually tested in the
       ;; subject (--subject-extra). That claim is worthless unless the
       ;; signature covers it: swapping the tested sha must invalidate the CID.
-      (let [tipped (fleet.ci/make-receipt
+      (let [tipped (kagami.ci/make-receipt
                     {:subject {:repos ["a"] :tips {"a" "sha-1"} :trigger :tip-change}
                      :checks checks :required req :policy "fleet-ci/tip-verify/v1" :at "t"})
-            other  (fleet.ci/make-receipt
+            other  (kagami.ci/make-receipt
                     {:subject {:repos ["a"] :tips {"a" "sha-2"} :trigger :tip-change}
                      :checks checks :required req :policy "fleet-ci/tip-verify/v1" :at "t"})
-            s (fleet.ci/sign-receipt h sign "did:key:zA" tipped)]
+            s (kagami.ci/sign-receipt h sign "did:key:zA" tipped)]
         (is (= {"a" "sha-1"} (get-in tipped [:ci/subject :tips])))
-        (is (not= (fleet.ci/receipt-cid h tipped) (fleet.ci/receipt-cid h other)))
-        (is (:ok? (fleet.ci/verify-receipt h vfy s "pkA")))
+        (is (not= (kagami.ci/receipt-cid h tipped) (kagami.ci/receipt-cid h other)))
+        (is (:ok? (kagami.ci/verify-receipt h vfy s "pkA")))
         (is (some #{:cid-mismatch}
-                  (:reasons (fleet.ci/verify-receipt
+                  (:reasons (kagami.ci/verify-receipt
                              h vfy (assoc s :receipt other) "pkA"))))))))
 
 (deftest scope-diff-repos-tightest-flip
@@ -561,7 +561,7 @@
 (deftest governor-bridge-receipt-shape
   (let [outcome {:repo "kagami" :new-sha "80914e06f4c1c2ef56f1b5a91e9f7e628c519e56"
                  :seq 7 :verdict :accept :quorum 2 :threshold 2}
-        r (fleet.governor-bridge/land->ops-receipt outcome 1)]
+        r (kagami.governor-bridge/land->ops-receipt outcome 1)]
     (testing "fleet land-back maps to the ops-runner receipt shape"
       (is (= "kagami:80914e06f4c1" (:merged-cid r)))
       (is (= :fleet (:lane r)))
@@ -570,7 +570,7 @@
       (is (= :accepted (:status r)))
       (is (= 1 (:ts r))))
     (testing "reject verdict -> :rejected status"
-      (is (= :rejected (:status (fleet.governor-bridge/land->ops-receipt
+      (is (= :rejected (:status (kagami.governor-bridge/land->ops-receipt
                                  (assoc outcome :verdict :reject) 1)))))
     (testing "the signature-covered identity keys are all present"
       (is (every? r [:merged-cid :lane :effect-id :kind :status :ts])))))

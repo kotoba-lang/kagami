@@ -1,4 +1,4 @@
-(ns fleet.objects
+(ns kagami.objects
   "⑰ kotoba-git object-plane block transfer for P3b (ADR-2607160005).
 
   P3b gossip replicates the fleet HEAD (a single record). This module adds

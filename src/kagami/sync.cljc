@@ -1,4 +1,4 @@
-(ns fleet.sync
+(ns kagami.sync
   "Pure sync planner (ADR-2607160005 Plane 5, Phase 0).
 
   Given a repo entity + observed workspace state, produce the git argv steps
@@ -15,7 +15,7 @@
   cheap way to bring a workspace to the manifest, where `west update` walks
   every project and runs git in each regardless."
   (:require [clojure.string :as str]
-            [fleet.west :as west]))
+            [kagami.west :as west]))
 
 (defn plan
   "entity + state -> {:action .. :steps [[cmd & args] ..]}.

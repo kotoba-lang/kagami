@@ -1,4 +1,4 @@
-(ns fleet.ci
+(ns kagami.ci
   "Native CI for fleet-vcs (ADR-2607160005): content-addressed, signed
   verification receipts, modelled on kotobase code_graph's execution-receipt
   (put-execution-receipt!) — provenance whose CID authenticates the record
@@ -13,7 +13,7 @@
   (fleet ed25519). Pure cljc; crypto/hash injected."
   (:require [clojure.string :as str]))
 
-(def ^:const stream "fleet/ci-receipts")
+(def ^:const stream "kagami/ci-receipts")
 
 (defn canonical-str
   "Deterministic signing payload. Field order is protocol."

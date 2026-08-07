@@ -1,17 +1,17 @@
-(ns fleet.db
+(ns kagami.db
   "fleet-db — the Phase 0 read model (ADR-2607160005).
 
-  The db value is the map produced by fleet.west/parse:
+  The db value is the map produced by kagami.west/parse:
     {:fleet/header .. :fleet/footer .. :fleet/remotes [..] :fleet/repos [entity ..]}
   persisted as one EDN file. west.yml is the *projection* of this value
-  (fleet.west/emit); in Phase 0 the direction of truth is still west.yml ->
+  (kagami.west/emit); in Phase 0 the direction of truth is still west.yml ->
   fleet-db (import), and flips in Phase 1.
 
   Alongside the db file sits an append-only ledger (one EDN map per line,
   monotonic :event/seq — same shape as canvas-ledger.edn). Phase 0 only
   records events; admission-gate enforcement is Phase 1."
   (:require [clojure.string :as str]
-            [fleet.west :as west]))
+            [kagami.west :as west]))
 
 (defn schema-datoms
   "The repo-entity schema as Datomic-style transaction maps, for consumers

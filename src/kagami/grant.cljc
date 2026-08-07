@@ -1,4 +1,4 @@
-(ns fleet.grant
+(ns kagami.grant
   "Delegation-chain grants + Governor quorum policy (Phase 2, ADR-2607160005).
 
   Chains carry authority from an owner root did:key to agent did:keys with
@@ -15,8 +15,8 @@
   allow set — defense-in-depth against single-key compromise, not
   distributed decision-making."
   (:require [clojure.string :as str]
-            [fleet.did :as did]
-            [fleet.pin :as pin]))
+            [kagami.did :as did]
+            [kagami.pin :as pin]))
 
 ;; ---------------------------------------------------------------------------
 ;; links
@@ -27,7 +27,7 @@
   (pr-str ["fleet-grant/v1" iss aud (vec (sort resources)) exp]))
 
 (defn grant->cacao-payload
-  "Bridge to CAIP-122 CACAO (org-chainagnostic-cacao). fleet.grant's fields
+  "Bridge to CAIP-122 CACAO (org-chainagnostic-cacao). kagami.grant's fields
   are ALREADY the CACAO payload fields (iss/aud/resources/exp); this emits the
   CAIP-122 payload map so a fleet grant can be handed to cacao.core/mint on the
   JVM (cacao.core is JVM-only today — see kotoba-rad.cacao-delegate — so the
@@ -90,7 +90,7 @@
   proposal: {:record r :signatures [{:signer did :signature hex} ...]}
   ctx: {:policy {:allow #{did} :threshold n}
         :current, :verify-fn, :hash-fn, :reachable?, :value-advance?
-        — same meanings as fleet.pin/admit}
+        — same meanings as kagami.pin/admit}
 
   Structural invariants (sequence, parent, reachability, value-advance) are
   identical to the single-key gate; authority is >= threshold distinct valid

@@ -1,10 +1,10 @@
-(ns fleet.kdb
+(ns kagami.kdb
   "kotobase persistence for fleet-db (⑯, ADR-2607160005): project the EDN
   read-model into the real datom plane (kotobase-peer over arrangement/
   chain/prolly-tree), replacing plain-fn queries with Datalog and the
   ~500KB EDN blob with a content-addressed commit chain.
 
-  The EDN model (fleet.west/parse) stays the transport/ingest shape; this
+  The EDN model (kagami.west/parse) stays the transport/ingest shape; this
   module is the queryable + persistable projection of it. A contract test
   proves the datom-plane queries equal the EDN-model queries.
 
@@ -12,7 +12,7 @@
   on the npm path). Persistence (commit!/hydrate) is Promise-returning on
   cljs — callers await. Hot-db transact/query are synchronous."
   (:require [kotobase-peer.core :as kb]
-            [fleet.db :as fdb]))
+            [kagami.db :as fdb]))
 
 (defn repo->tx
   "One repo entity -> :db/add tx-data (subject = repo path, a stable id)."
@@ -38,7 +38,7 @@
   (kb/transact (kb/empty-db) (mapcat repo->tx (:fleet/repos fleet-db))))
 
 ;; ---------------------------------------------------------------------------
-;; Datalog queries (replacing fleet.db plain fns)
+;; Datalog queries (replacing kagami.db plain fns)
 
 (defn q-by-org [db org]
   (->> (kb/query db {:find ['?name] :where [['?e ":repo/org" org]

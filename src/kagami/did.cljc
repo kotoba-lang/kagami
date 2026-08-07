@@ -1,4 +1,4 @@
-(ns fleet.did
+(ns kagami.did
   "did:key encode/decode for ed25519 (Phase 2, ADR-2607160005).
   did:key:z6Mk... = multibase base58btc of (0xed 0x01 + raw 32-byte pubkey).
   Pure cljc; bignum arithmetic via js/BigInt (:cljs) / BigInteger (:clj)."

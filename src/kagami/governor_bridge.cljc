@@ -1,4 +1,4 @@
-(ns fleet.governor-bridge
+(ns kagami.governor-bridge
   "Governor integration (ADR-2607160005 / ADR-2607141700): map a fleet quorum
   land-back outcome (propose -> govern -> canonical advance) to the shape the
   cloud-itonami ops-runner audit ledger uses, so a fleet governance decision

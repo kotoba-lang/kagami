@@ -1,6 +1,6 @@
-(ns fleet.ws
+(ns kagami.ws
   "Workspace manager (Phase 2 remainder, ADR-2607160005 Plane 3).
-  Pure planning/policy — IO injected by the CLI (same style as fleet.sync).
+  Pure planning/policy — IO injected by the CLI (same style as kagami.sync).
   Cursor-2.0-style hygiene: automatic GC with age + machine-count caps,
   dirty workspaces never collected."
   (:require [clojure.string :as str]))
