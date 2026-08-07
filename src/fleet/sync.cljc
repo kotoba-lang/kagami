@@ -4,12 +4,16 @@
   Given a repo entity + observed workspace state, produce the git argv steps
   that materialize the checkout at the pinned revision. Pure: no IO here —
   the nbb CLI executes plans through an injected runner (same pattern as
-  kotoba/git_adapter.cljc). Because every plan targets the pin SHA directly
-  (`fetch --depth 1 origin <sha>`), the shallow-vs-pin mismatch class and
-  local ancestry judgments do not exist in this planner: there is nothing to
-  judge, only a SHA to materialize.
+  kotoba/git_adapter.cljc). Because every plan targets the pin SHA DIRECTLY
+  (`fetch origin <sha>`), the shallow-vs-pin mismatch class and local
+  ancestry judgments do not exist in this planner: there is nothing to judge,
+  only a SHA to materialize. That property comes from naming the SHA, not
+  from the depth — the depth was the thing that broke it (ADR-2607211600).
 
-  west semantics kept: a dirty checkout is skipped, never overwritten."
+  west semantics kept: a dirty checkout is skipped, never overwritten. And a
+  checkout already AT its pin plans nothing — `:noop` is what makes this the
+  cheap way to bring a workspace to the manifest, where `west update` walks
+  every project and runs git in each regardless."
   (:require [clojure.string :as str]
             [fleet.west :as west]))
 
@@ -22,7 +26,17 @@
   [db entity {:keys [exists? dirty? head]} dir]
   (let [rev   (:repo/revision entity)
         url   (west/remote-url db entity)
-        depth (or (:repo/clone-depth entity) 1)]  ;; shallow default (CLAUDE.md)
+        ;; FULL history unless the entity asks for otherwise. Shallow was the
+        ;; default here and stopped being the workspace's default on
+        ;; 2026-07-21 (ADR-2607211600), which unshallowed the whole fleet
+        ;; because west was re-applying `clone-depth` on every fetch and
+        ;; laying down a new graft each time. This planner kept the old rule
+        ;; and cited a CLAUDE.md that no longer says it, so syncing through
+        ;; it would have put the grafts back one repo at a time.
+        depth (:repo/clone-depth entity)
+        fetch (fn [] (cond-> ["git" "-C" dir "fetch"]
+                       depth (into ["--depth" (str depth)])
+                       true  (into ["origin" rev])))]
     (cond
       (and exists? dirty?)
       {:action :skip-dirty :steps []}
@@ -32,14 +46,14 @@
 
       exists?
       {:action :advance
-       :steps [["git" "-C" dir "fetch" "--depth" (str depth) "origin" rev]
+       :steps [(fetch)
                ["git" "-C" dir "checkout" "--detach" rev]]}
 
       :else
       {:action :materialize
        :steps [["git" "init" "-q" dir]
                ["git" "-C" dir "remote" "add" "origin" url]
-               ["git" "-C" dir "fetch" "--depth" (str depth) "origin" rev]
+               (fetch)
                ["git" "-C" dir "checkout" "--detach" "FETCH_HEAD"]]})))
 
 (defn working-set
