@@ -1,11 +1,14 @@
 (ns kagami.db
-  "fleet-db — the Phase 0 read model (ADR-2607160005).
+  "genpon（原本）— the pin registry read model (ADR-2607160005 / ADR-2608147300).
+
+  Spoken name: 原本 (genpon). On-disk file: manifest/fleet-db.edn.
+  Keys stay :fleet/header :fleet/footer :fleet/remotes :fleet/repos.
 
   The db value is the map produced by kagami.west/parse:
     {:fleet/header .. :fleet/footer .. :fleet/remotes [..] :fleet/repos [entity ..]}
   persisted as one EDN file. west.yml is the *projection* of this value
   (kagami.west/emit); in Phase 0 the direction of truth is still west.yml ->
-  fleet-db (import), and flips in Phase 1.
+  genpon (import), and flips in Phase 1.
 
   Alongside the db file sits an append-only ledger (one EDN map per line,
   monotonic :event/seq — same shape as canvas-ledger.edn). Phase 0 only

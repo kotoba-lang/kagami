@@ -1,9 +1,16 @@
 # kagami
 
-*(旧 kotoba-fleet-vcs — 2026-07-16 rename。fleet-db を映す鏡＝projection の含意)*
+`kagami` is the **mirror** that projects **原本 (genpon)** — the pin registry
+for this west-managed workspace — onto `manifest/west.yml`. If you are looking
+for the `{repo → pin SHA}` book, that original is `manifest/fleet-db.edn` in
+the superproject (plus append-only `fleet-db.ledger.edn`). This repository is
+the projector, not the book. The filename `fleet-db.edn` is on-disk legacy;
+the spoken name is genpon (ADR-2608147300).
+
+*(旧 kotoba-fleet-vcs — 2026-07-16 rename。west.yml は原本の写し＝鏡像)*
 
 west 後継の AI-agent フリート向け VCS レイヤ（ADR-2607160005）。この repo は
-**Phase 0 — 読み取りモデル**: `manifest/west.yml`（生成物）を fleet-db（EDN の
+**Phase 0 — 読み取りモデル**: `manifest/west.yml`（生成物）を原本（EDN の
 repo entity 集合 + append-only ledger）に import し、byte-exact な projection
 round-trip と、pin SHA 直接 fetch による**並列 sync** を提供する。
 
