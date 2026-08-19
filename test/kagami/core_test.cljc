@@ -512,7 +512,45 @@
       (is (str/starts-with? (kagami.ci/gate-detail 1 "boom") "exit 1 — boom"))
       (let [d (kagami.ci/gate-detail 0 (apply str (repeat 400 "x")))]
         (is (<= (count d) (+ 20 kagami.ci/gate-detail-max)))
-        (is (str/includes? d "…"))))
+        (is (str/includes? d "…")))
+      ;; A failing gate's own output is the only artifact anyone acts on, and a
+      ;; three-line tail never carried it: the runner harness prints its
+      ;; epilogue AFTER the diagnosis. This is the real output amu-native-fuzz
+      ;; produced on fleet node simeon on 2026-08-19, abbreviated only in the
+      ;; middle. Under the old budget the receipt read `FLEET-CI: native fuzz
+      ;; exited 1 | FLEET-CI-EXIT: 1 | FLEET-CI: gate did not report success`
+      ;; -- three lines saying THAT it failed and none saying why, which cost a
+      ;; manual ssh to that node to find out.
+      (let [real-failure
+            (str "native-fuzz: building\n"
+                 "/tmp/amu/tools/kexe_loader.c:495:31: runtime error: applying zero offset to null pointer\n"
+                 "    #0 0x000104e167b8 in resolve_string_bytes kexe_loader.c\n"
+                 "    #1 0x000104e0d468 in checked_string_substring kexe_loader.c:1157\n"
+                 "    #2 0x000104e15304 in fuzz_handle_graph kexe_parser_fuzz.c:445\n"
+                 "SUMMARY: UndefinedBehaviorSanitizer: undefined-behavior kexe_loader.c:495:31\n"
+                 "    at file:///opt/homebrew/lib/node_modules/nbb/lib/nbb_main.js:13:216\n"
+                 "FLEET-CI: native fuzz exited 1\n"
+                 "FLEET-CI-EXIT: 1\n"
+                 "FLEET-CI: gate did not report success on simeon\n")
+            d (kagami.ci/gate-detail 1 real-failure)]
+        (is (str/includes? d "kexe_loader.c:495:31")
+            "the receipt names the file and line the sanitizer named")
+        (is (str/includes? d "resolve_string_bytes")
+            "and the frame the fault is in")
+        (is (str/includes? d "UndefinedBehaviorSanitizer")
+            "and what kind of fault it was")
+        (is (str/includes? d "FLEET-CI-EXIT: 1")
+            "without dropping the epilogue that was all it used to carry")
+        (is (<= (count d) (+ 20 kagami.ci/gate-detail-max-failed))
+            "and a receipt is still a receipt"))
+      ;; The wider budget is for failures only. A passing check stays terse --
+      ;; its detail is confirmatory, and receipts should not grow for the
+      ;; overwhelmingly common case.
+      (let [chatty (str/join "\n" (map #(str "line " %) (range 40)))]
+        (is (= 3 (count (str/split (kagami.ci/gate-detail 0 chatty) #" \| ")))
+            "a passing gate still keeps three lines")
+        (is (= 12 (count (str/split (kagami.ci/gate-detail 1 chatty) #" \| ")))
+            "a failing one keeps twelve")))
     (testing "subject extras (tip-driven runner) are covered by the signature"
       ;; A tip-driven runner records WHICH commit it actually tested in the
       ;; subject (--subject-extra). That claim is worthless unless the

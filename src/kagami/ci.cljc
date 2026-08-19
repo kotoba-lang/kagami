@@ -34,19 +34,51 @@
      :outcome (if (empty? missing) :pass :fail)}))
 
 (def ^:const gate-detail-max 240)
+(def ^:const gate-detail-lines 3)
+
+;; A failing check gets a bigger budget than a passing one, and the asymmetry is
+;; the whole point rather than a tuning choice.
+;;
+;; A passing check's detail is confirmatory -- `Ran 23 tests, 0 failures` is the
+;; last line, and three lines carry it. A FAILING check's detail is the only
+;; artifact anyone acts on, and the old budget provably did not carry it: the
+;; runner harness appends its own epilogue after the diagnosis, so the last
+;; three lines are the epilogue and the cause is always just above the cut.
+;;
+;; Measured 2026-08-19, amu-native-fuzz on fleet node simeon. The whole receipt
+;; said:
+;;
+;;   exit 1 — FLEET-CI: native fuzz exited 1 | FLEET-CI-EXIT: 1 |
+;;            FLEET-CI: gate did not report success on simeon
+;;
+;; Three lines, all of them saying THAT it failed, none saying why. The cause --
+;; a UBSan report naming the file, the line and the two frames -- had been
+;; printed by the gate four lines earlier and was cut. Diagnosing it required
+;; shipping the tree to that node over ssh and re-running by hand. The
+;; superproject's own gates.edn had already named this: "an error body that is
+;; discarded is the same defect class as a check that cannot answer."
+;;
+;; Receipts stay small where it matters: they only grow when something is wrong.
+(def ^:const gate-detail-max-failed 1200)
+(def ^:const gate-detail-lines-failed 12)
 
 (defn gate-detail
   "`exit <code> — <last meaningful output lines>`, capped so a receipt stays a
   receipt (not a log). Keeps the LAST lines because test runners print their
-  summary there. Whitespace-collapsed for one-line EDN readability."
+  summary there -- and keeps MORE of them when `code` is non-zero, because a
+  failing runner prints its epilogue after the diagnosis, putting the cause just
+  above a three-line cut. Whitespace-collapsed for one-line EDN readability."
   [code out]
-  (let [lines (->> (str/split-lines (str/trim (str out)))
+  (let [failed? (not= 0 code)
+        keep-lines (if failed? gate-detail-lines-failed gate-detail-lines)
+        keep-chars (if failed? gate-detail-max-failed gate-detail-max)
+        lines (->> (str/split-lines (str/trim (str out)))
                    (map str/trim)
                    (remove str/blank?))
-        tail (str/join " | " (take-last 3 lines))
+        tail (str/join " | " (take-last keep-lines lines))
         tail (str/replace tail #"\s+" " ")
-        tail (if (> (count tail) gate-detail-max)
-               (str "…" (subs tail (- (count tail) gate-detail-max)))
+        tail (if (> (count tail) keep-chars)
+               (str "…" (subs tail (- (count tail) keep-chars)))
                tail)]
     (if (str/blank? tail)
       (str "exit " code " — (no output)")
