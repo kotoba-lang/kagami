@@ -19,7 +19,13 @@
   Pure cljc: crypto is injected as fns — {:verify-fn (fn [pubkey bytes sig])
   :hash-fn (fn [s] hex)} — nbb wires node:crypto, JVM wires ed25519-clj.
   Signer ids are \"ed25519:<pubkey-hex>\" in Phase 1; migrating ids to
-  did:key via kotoba-lang ed25519/did libs is Phase 2 (identity plane)."
+  did:key via kotoba-lang ed25519/did libs is Phase 2 (identity plane).
+
+  The admission judgement (`covers?` + the reason/verdict fold in `admit`)
+  also exists as a Kotoba decision core, `src/kagami/pin_core.kotoba`,
+  parity-bound to this namespace by `kagami.pin-kotoba-parity-test` (compiled
+  at test time; test-only deps). This cljc is still what runs — the core's
+  header records why the authority move is a separate slice."
   (:require [clojure.string :as str]))
 
 ;; ---------------------------------------------------------------------------
