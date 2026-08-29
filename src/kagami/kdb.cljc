@@ -8,8 +8,8 @@
   module is the queryable + persistable projection of it. A contract test
   proves the datom-plane queries equal the EDN-model queries.
 
-  Runs under nbb (kotobase-peer + deps are pure cljc; needs @noble/hashes
-  on the npm path). Persistence (commit!/hydrate) is Promise-returning on
+  Runs under nbb (kotobase-peer + deps are pure cljc; org-nist-sha2 via
+  io-multiformats on the npm path). Persistence (commit!/hydrate) is Promise-returning on
   cljs — callers await. Hot-db transact/query are synchronous."
   (:require [kotobase-peer.core :as kb]
             [kagami.db :as fdb]))
