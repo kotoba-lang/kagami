@@ -10,7 +10,7 @@
 
   Pure cljc over a kotoba-git arrangement db (objects are datoms keyed by
   content hash). Needs the kotoba-git classpath (arrangement/prolly-tree/
-  io-ipld/io-multiformats/org-ietf-cbor + @noble/hashes on npm)."
+  io-ipld/io-multiformats/org-ietf-cbor on the kotobase classpath)."
   (:require [bonsai.object :as obj]
             [bonsai.log :as glog]))
 
