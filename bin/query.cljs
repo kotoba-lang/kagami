@@ -7,7 +7,7 @@
 (ns fleet.query
   (:require ["node:fs" :as fs]
             [cljs.reader :as reader]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [kotobase-peer.core :as kb]
             [kagami.kdb :as kdb]
             [kagami.west :as west]))

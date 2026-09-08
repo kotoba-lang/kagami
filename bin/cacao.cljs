@@ -13,7 +13,7 @@
             ["node:crypto" :as crypto]
             ["node:fs" :as fs]
             [cljs.reader :as reader]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [cacao.core :as cacao]))
 
 (defn die [m] (js/console.error (str "cacao: " m)) (js/process.exit 1))

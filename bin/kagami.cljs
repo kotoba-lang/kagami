@@ -18,7 +18,7 @@
             ["node:fs" :as fs]
             ["node:path" :as path]
             [cljs.reader :as reader]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [kagami.db :as db]
             [kagami.did :as did]
             [kagami.ci :as ci]
