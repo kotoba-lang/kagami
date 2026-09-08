@@ -13,7 +13,7 @@
   (:require ["node:http" :as http]
             ["node:fs" :as fs]
             [cljs.reader :as reader]
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 (defn parse-args [argv]
   (loop [o {} [a & m] argv]
