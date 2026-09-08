@@ -13,7 +13,7 @@
   - `submodules: true`  (recurse all)
   - `submodules:` + indented `- path: <rel>` list (selective exclude form from
     gen-west-manifest.cljs when submodule-excludes is set)."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def ^:private projects-line "  projects:")
 

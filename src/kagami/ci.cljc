@@ -11,7 +11,7 @@
   fleet-db head), which are REQUIRED, which PASSED, the overall outcome, and
   who signed it. Content-addressed (sha256 of the canonical payload) + signed
   (fleet ed25519). Pure cljc; crypto/hash injected."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (def ^:const stream "kagami/ci-receipts")
 

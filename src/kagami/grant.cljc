@@ -14,7 +14,7 @@
   Canonical advances need >= threshold distinct valid signatures from the
   allow set — defense-in-depth against single-key compromise, not
   distributed decision-making."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [kagami.did :as did]
             [kagami.pin :as pin]))
 

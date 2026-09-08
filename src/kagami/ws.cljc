@@ -3,7 +3,7 @@
   Pure planning/policy — IO injected by the CLI (same style as kagami.sync).
   Cursor-2.0-style hygiene: automatic GC with age + machine-count caps,
   dirty workspaces never collected."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (defn gc-plan
   "workspaces: [{:path .. :age-h n :dirty? bool} ...]
