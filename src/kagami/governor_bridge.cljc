@@ -18,7 +18,7 @@
   classpath); a bin entrypoint composes this mapping with the real
   sign/verify. This mirrors the ops-runner-vs-VCS-stack decoupling: compose by
   the plain-map receipt shape, not by a hard dependency."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (defn land->ops-receipt
   "A fleet govern outcome -> ops-runner receipt map.

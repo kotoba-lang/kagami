@@ -17,7 +17,7 @@
   renames a reason, this suite fails on the rename itself, not only on
   disagreement — an assertion that would stay green under a rename on both
   sides at once is not discriminating the thing it names."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [clojure.test :refer [deftest is testing]]
             [kagami.pin :as pin]
             [kotoba.compiler.core :as compiler]

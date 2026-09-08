@@ -14,7 +14,7 @@
   checkout already AT its pin plans nothing — `:noop` is what makes this the
   cheap way to bring a workspace to the manifest, where `west update` walks
   every project and runs git in each regardless."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [kagami.west :as west]))
 
 (defn plan

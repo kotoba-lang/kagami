@@ -13,7 +13,7 @@
   Alongside the db file sits an append-only ledger (one EDN map per line,
   monotonic :event/seq — same shape as canvas-ledger.edn). Phase 0 only
   records events; admission-gate enforcement is Phase 1."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [kagami.west :as west]))
 
 (defn schema-datoms

@@ -26,7 +26,7 @@
   parity-bound to this namespace by `kagami.pin-kotoba-parity-test` (compiled
   at test time; test-only deps). This cljc is still what runs — the core's
   header records why the authority move is a separate slice."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 ;; ---------------------------------------------------------------------------
 ;; record shape + canonical bytes

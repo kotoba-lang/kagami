@@ -9,7 +9,7 @@
 
   Pure cljc; sign/verify/hash injected. A receipt attests: repo, pin,
   default-branch tip observed, reachable?, value-advance?, at, signer."
-  (:require [clojure.string :as str]))
+  (:require [kotoba.lang.text :as str]))
 
 (defn canonical-str
   [{:reach/keys [repo pin default-tip reachable? value-advance? at]}]
