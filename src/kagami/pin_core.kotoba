@@ -20,7 +20,7 @@
 ;;
 ;; Moving the authority (the cloud-itonami-app `kotoba-oracle` pattern, where
 ;; the shipped KIR is what runs) is the recorded follow-up, NOT part of this
-;; slice, because kagami's production entry point is `bin/kagami.cljs` under
+;; slice, because kagami's production entry point is `bin/kagami.cljk` under
 ;; nbb with `--classpath <repo>/src` — the invocation contract written into
 ;; the superproject CLAUDE.md and the fleet reconcile/sync runbooks. A runtime
 ;; KIR interpreter dependency changes that classpath for every caller, and a

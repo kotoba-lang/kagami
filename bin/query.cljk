@@ -2,7 +2,7 @@
 ;; fleet query — the live Datalog backend over the real kotobase datom plane
 ;; (⑯ made queryable, C wires it as a daily tool). Separate entrypoint so the
 ;; lightweight `fleet` CLI stays free of the kotobase classpath; run with:
-;;   nbb --classpath <fleet/src:kotobase-stack> bin/query.cljs --db fleet-db.edn --q '<datalog>'
+;;   nbb --classpath <fleet/src:kotobase-stack> bin/query.cljk --db fleet-db.edn --q '<datalog>'
 ;; or a canned query: --canned heavy|datalad|orgs|by-org:<org>|revision:<name>
 (ns fleet.query
   (:require ["node:fs" :as fs]

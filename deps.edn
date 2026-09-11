@@ -13,7 +13,7 @@
                       ;; `src/kagami/pin_core.kotoba` at test time and run it
                       ;; against `kagami.pin`. Nothing at runtime loads either:
                       ;; the production entry point stays
-                      ;; `nbb --classpath src bin/kagami.cljs`, and keeping
+                      ;; `nbb --classpath src bin/kagami.cljk`, and keeping
                       ;; that contract unchanged is why the `.kotoba` core is
                       ;; parity-bound rather than authoritative in this slice
                       ;; (see the header of pin_core.kotoba).

@@ -52,7 +52,7 @@ nbb --classpath src bin/fleet.cljs pin-advance --db fleet-db.edn --repo kotoba -
 
 
 ```bash
-nbb --classpath src:test run-tests.cljs
+nbb --classpath src:test run-tests.cljk
 ```
 
 ## Design invariants (Phase 0)
@@ -92,7 +92,7 @@ fail-open・opt-in）を `DELTA_CAPTURE=1 DELTA_KEY=<pem> DELTA_LOG=.claude/delt
 ## live backend — kotobase commit chain 永続化（ADR-2607160005）
 
 fleet-db を EDN blob でなく **実 kotobase-peer commit chain（content-addressed・
-検証可能）**に永続化。`bin/kdb.cljs persist` が fleet-db を datom 化して
+検証可能）**に永続化。`bin/kdb.cljk persist` が fleet-db を datom 化して
 `kb/commit!` で耐久 file-backed block store に append、chain head CID を pointer
 に記録。`hydrate` が block store だけから fleet-db を復元、`verify` が
 tamper/gapless chain 検証。実測: 1745 repos を persist→hydrate ラウンドトリップで
@@ -113,7 +113,7 @@ require せず plain-map receipt shape で疎結合（VCS-stack decoupling と�
 ## CACAO 完全整合（本物の CAIP-122、ADR-2607160005）
 
 **cacao.core（org-chainagnostic-cacao）は既に portable .cljc で nbb 完動**
-（「JVM-only」注記は古い）。移植不要で、`bin/cacao.cljs` が **本物の CAIP-122
+（「JVM-only」注記は古い）。移植不要で、`bin/cacao.cljk` が **本物の CAIP-122
 CACAO** を mint/verify/verify-chain する（署名 seed は kagi PEM から抽出）。
 fleet-native lookalike（kagami.grant）でなく実 CACAO を使える。実測: owner が
 enrolled agent did に pin+land grant を mint → agent が kagami に attenuate して
@@ -166,7 +166,7 @@ fallback。**item「FLEET_PIN_TOKEN 発行」は不要になった**。
 
 ## 日常ドライバ化（reverse-topo: C→B→A→D）
 
-- **C — live query backend**: `bin/query.cljs`（実 datom plane に任意 Datalog +
+- **C — live query backend**: `bin/query.cljk`（実 datom plane に任意 Datalog +
   canned）。多節 join（例「heavy かつ datalad」→ m365-archive）が回る。
 - **B — p2p private visibility**: `kagami.objects/pack` 5-arity が private repo の
   object を **allow-set 外の peer に配らない**（Radicle visibility model）。
@@ -183,7 +183,7 @@ fallback。**item「FLEET_PIN_TOKEN 発行」は不要になった**。
   over arrangement/chain/prolly-tree）に射影。plain-fn クエリを **Datalog**
   （`kb/query`）に置換、~500KB EDN blob を **content-addressed commit chain**
   （`kb/commit!` → CID）で永続化。EDN は ingest/transport 形として残す。
-- contract test（`kdb-contract.cljs`）が datom-plane クエリ == EDN-model
+- contract test（`kdb-contract.cljk`）が datom-plane クエリ == EDN-model
   クエリを実証（kotoba-lang 1389 / cloud-itonami 58 / heavy 17 / datalad 10 /
   revision / count 全一致）+ 永続化ラウンドトリップ（transact→commit!→hydrate）。
 - 実行 classpath（kotobase stack、全て pure cljc + @noble/hashes）:
@@ -209,7 +209,7 @@ fallback。**item「FLEET_PIN_TOKEN 発行」は不要になった**。
   `pack db head-cid have` が `kotoba-git.log/missing-since`（プル
   ネゴシエーション primitive）で受信側が欠く object だけを算出、`unpack` が
   受信側 db に書き戻す（content-addressed なので CID 検証付き・冪等）。
-- demo（`objects-demo.cljs`）: 増分 fetch A→B — B は v1 の 3 objects を保持、
+- demo（`objects-demo.cljk`）: 増分 fetch A→B — B は v1 の 3 objects を保持、
   A は delta 3 objects（新 blob+tree+commit、v1 の blob は送らない）だけ送信、
   **B は v2 を再構成でき新ファイルを読める**、forged block（CID 詐称）は
   `cid mismatch` で REJECT。git-fetch の「delta だけ動く」を content-address で。

@@ -1,5 +1,5 @@
 #!/usr/bin/env nbb
-;; nbb --classpath src:test run-tests.cljs
+;; nbb --classpath src:test run-tests.cljk
 (ns run-tests
   (:require [cljs.test :refer [run-tests]]
             [kagami.core-test]))
