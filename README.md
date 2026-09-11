@@ -16,7 +16,7 @@ round-trip と、pin SHA 直接 fetch による**並列 sync** を提供する�
 
 west 体制の正本はまだ変えない（Phase 0 の設計制約）。pin の前進は
 `fleet pin-advance`（ledger event + db 更新）→ 既存の検証済み経路
-`nbb scripts/gen-west-manifest.cljs --entry <name>` への委譲、の 2 相。
+`kbb --backend sci scripts/gen-west-manifest.cljk --entry <name>` への委譲、の 2 相。
 
 ## Runtime
 
@@ -29,21 +29,21 @@ pure `.cljc`（`kagami.west` / `kagami.db` / `kagami.sync`）で、IO は
 
 ```bash
 # import: west.yml -> fleet-db
-nbb --classpath src bin/fleet.cljs import --west ../../manifest/west.yml --out fleet-db.edn
+kbb --backend sci --classpath src bin/fleet.cljs import --west ../../manifest/west.yml --out fleet-db.edn
 
 # check: fleet-db の projection が west.yml と byte 一致するか（Phase 0 受け入れ基準）
-nbb --classpath src bin/fleet.cljs check --west ../../manifest/west.yml --db fleet-db.edn
+kbb --backend sci --classpath src bin/fleet.cljs check --west ../../manifest/west.yml --db fleet-db.edn
 
 # 並列 sync: working set を pin で workspace に実体化（dirty は skip、west 意味論）
-nbb --classpath src bin/fleet.cljs sync --db fleet-db.edn --workspace /tmp/ws \
+kbb --backend sci --classpath src bin/fleet.cljs sync --db fleet-db.edn --workspace /tmp/ws \
     --names kotoba,kotobase --jobs 8
 
 # クエリ / 統計
-nbb --classpath src bin/fleet.cljs stats --db fleet-db.edn
-nbb --classpath src bin/fleet.cljs list --db fleet-db.edn --org kotoba-lang
+kbb --backend sci --classpath src bin/fleet.cljs stats --db fleet-db.edn
+kbb --backend sci --classpath src bin/fleet.cljs list --db fleet-db.edn --org kotoba-lang
 
 # pin 前進（2 相: ledger + db 更新 → 既存 --entry 経路へ委譲）
-nbb --classpath src bin/fleet.cljs pin-advance --db fleet-db.edn --repo kotoba --new <sha>
+kbb --backend sci --classpath src bin/fleet.cljs pin-advance --db fleet-db.edn --repo kotoba --new <sha>
 ```
 
 ## Tests
@@ -52,7 +52,7 @@ nbb --classpath src bin/fleet.cljs pin-advance --db fleet-db.edn --repo kotoba -
 
 
 ```bash
-nbb --classpath src:test run-tests.cljk
+kbb --backend sci --classpath src:test run-tests.cljk
 ```
 
 ## Design invariants (Phase 0)

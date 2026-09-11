@@ -1,4 +1,4 @@
-#!/usr/bin/env nbb
+#!/usr/bin/env kbb
 ;; fleet kdb — live backend flip (ADR-2607160005): persist fleet-db through
 ;; the real kotobase-peer commit chain (content-addressed, verifiable), with
 ;; a durable file-backed block store, instead of a re-imported EDN blob. The

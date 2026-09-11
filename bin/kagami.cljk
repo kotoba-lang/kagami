@@ -1,4 +1,4 @@
-#!/usr/bin/env nbb
+#!/usr/bin/env kbb
 (ns fleet.cli
   "kotoba-fleet CLI (Phase 0, ADR-2607160005).
 
@@ -12,7 +12,7 @@
     pin-advance --db <fleet-db.edn> --repo <name> --new <sha> [--actor A]
             ;; Phase 0 two-phase: ledger event + db update, then delegates
             ;; west.yml reflection to the existing verified path
-            ;; (nbb scripts/gen-west-manifest.cljs --entry <name>)."
+            ;; (kbb --backend sci scripts/gen-west-manifest.cljk --entry <name>)."
   (:require ["node:child_process" :as cp]
             ["node:crypto" :as crypto]
             ["node:fs" :as fs]
@@ -523,7 +523,7 @@
     (spit* dbf (pr-str (db/apply-pin-advance d ev)))
     (println "ledger:" (pr-str ev))
     (println "fleet-db updated. Reflect to west.yml via the existing verified path:")
-    (println "  nbb scripts/gen-west-manifest.cljs --entry" repo)))
+    (println "  kbb --backend sci scripts/gen-west-manifest.cljk --entry" repo)))
 
 ;; ---------------------------------------------------------------------------
 ;; Phase 2: grants, propose, governed land-back

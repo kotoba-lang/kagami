@@ -1,4 +1,4 @@
-#!/usr/bin/env nbb
+#!/usr/bin/env kbb
 ;; fleet cacao — REAL CAIP-122 CACAO integration (ADR-2607160005). cacao.core
 ;; (org-chainagnostic-cacao) is a portable .cljc and runs under nbb (its
 ;; JVM-only note was stale), so fleet uses the actual CACAO mint/verify/

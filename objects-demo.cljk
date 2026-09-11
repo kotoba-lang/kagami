@@ -1,4 +1,4 @@
-#!/usr/bin/env nbb
+#!/usr/bin/env kbb
 ;; ⑰ object-plane block transfer demo: incremental git-fetch between machines.
 (ns objects-demo
   (:require [bonsai.object :as obj]
