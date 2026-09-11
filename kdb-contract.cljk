@@ -1,4 +1,4 @@
-#!/usr/bin/env nbb
+#!/usr/bin/env kbb
 ;; Contract test: kagami.kdb (datom plane) == kagami.db (EDN read model).
 ;; Run with the kotobase classpath (see kdb-contract.sh).
 (ns kdb-contract

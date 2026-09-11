@@ -1,4 +1,4 @@
-#!/usr/bin/env nbb
+#!/usr/bin/env kbb
 ;; fleet serve — real p2p HTTP transport (ADR-2607160005 P3b). A fleet node
 ;; serves, over plain HTTP, the artifacts other nodes need so they don't touch
 ;; GitHub: the signed fleet head, signed reachability receipts, and (stub)
