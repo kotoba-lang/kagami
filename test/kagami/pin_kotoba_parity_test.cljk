@@ -18,7 +18,7 @@
   disagreement — an assertion that would stay green under a rename on both
   sides at once is not discriminating the thing it names."
   (:require [kotoba.lang.text :as str]
-            [clojure.test :refer [deftest is testing]]
+            [kotoba.test :refer [deftest is testing]]
             [kagami.pin :as pin]
             [kotoba.compiler.core :as compiler]
             [kotoba.kir :as ir]))
