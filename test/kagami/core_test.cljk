@@ -1,5 +1,5 @@
 (ns kagami.core-test
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [kagami.db :as db]
             [kagami.did :as did]
