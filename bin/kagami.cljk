@@ -328,7 +328,7 @@
   the fleet's own materialized copy rather than GitHub's server-side view.
 
   Treeless (--filter=blob:none) = full commit ancestry, no file blobs, so it
-  is fast AND immune to the shallow-clone false-ancestry trap (CLAUDE.md).
+  is fast AND immune to the shallow-clone false-ancestry trap (AGENTS.md).
   -> {:reachable? bool|:unknown :value-advance? bool|:unknown}"
   [url pin old-value]
   (let [tmp (str "/tmp/fleet-reach-" (.-pid js/process) "-" (swap! reach-counter inc))]
