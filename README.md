@@ -20,7 +20,7 @@ west 体制の正本はまだ変えない（Phase 0 の設計制約）。pin の
 
 ## Runtime
 
-第一の実行経路は **nbb**（repo 運用 tooling の正、CLAUDE.md 準拠）。core は
+第一の実行経路は **nbb**（repo 運用 tooling の正、AGENTS.md 準拠）。core は
 pure `.cljc`（`kagami.west` / `kagami.db` / `kagami.sync`）で、IO は
 `bin/fleet.cljs` に隔離（pure planner + injected runner、`kotoba/git_adapter.cljc`
 と同じ流儀）。

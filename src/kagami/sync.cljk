@@ -31,7 +31,7 @@
         ;; 2026-07-21 (ADR-2607211600), which unshallowed the whole fleet
         ;; because west was re-applying `clone-depth` on every fetch and
         ;; laying down a new graft each time. This planner kept the old rule
-        ;; and cited a CLAUDE.md that no longer says it, so syncing through
+        ;; and cited a AGENTS.md that no longer says it, so syncing through
         ;; it would have put the grafts back one repo at a time.
         depth (:repo/clone-depth entity)
         fetch (fn [] (cond-> ["git" "-C" dir "fetch"]

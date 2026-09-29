@@ -22,7 +22,7 @@
 ;; the shipped KIR is what runs) is the recorded follow-up, NOT part of this
 ;; slice, because kagami's production entry point is `bin/kagami.cljk` under
 ;; nbb with `--classpath <repo>/src` — the invocation contract written into
-;; the superproject CLAUDE.md and the fleet reconcile/sync runbooks. A runtime
+;; the superproject AGENTS.md and the fleet reconcile/sync runbooks. A runtime
 ;; KIR interpreter dependency changes that classpath for every caller, and a
 ;; change to the operator contract of the fleet's pin registry deserves its own
 ;; reviewed slice, not a rider on this one.
