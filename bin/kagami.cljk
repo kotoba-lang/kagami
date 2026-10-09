@@ -56,19 +56,35 @@
 (defn spit* [f s] (fs/writeFileSync f s))
 (defn load-db [f] (reader/read-string (slurp* f)))
 
+(defn forest-root
+  "west forest root (west topdir, `~/github`): repos live at
+  `<forest>/<org>/<repo>`. `$GITHUB_FOREST_ROOT` wins; otherwise derived from
+  the root checkout (FLEET_ROOT, else CWD) as the grandparent of its main
+  checkout — via git's common dir so a linked worktree resolves the same way.
+  Same rule as com-junkawasaki/root scripts/forest_root.cljk."
+  []
+  (or (not-empty (.-GITHUB_FOREST_ROOT js/process.env))
+      (let [root (or (.-FLEET_ROOT js/process.env) (js/process.cwd))]
+        (try
+          (path/resolve (str/trim (cp/execFileSync "git"
+                                                   #js ["-C" root "rev-parse" "--path-format=absolute" "--git-common-dir"]
+                                                   #js {:encoding "utf8" :stdio #js ["ignore" "pipe" "ignore"]}))
+                        ".." ".." "..")
+          (catch :default _ (path/resolve root ".." ".."))))))
+
+(defn kagi-bin [] (path/join (forest-root) "kotoba-lang" "kagi" "bin" "kagi"))
+
 (defn read-key
   "Resolve a signing key from either --key <pem-file> or --kagi <name>.
   kagi is the preferred store (OS-Keychain unlock, no interactive prompt;
-  ADR-2606272330). Looks for bin/kagi under CWD or FLEET_ROOT."
+  ADR-2606272330). Runs <forest>/kotoba-lang/kagi/bin/kagi (see forest-root)."
   [{:keys [key kagi]}]
   (cond
     key  (slurp* key)
-    kagi (let [root (or (.-FLEET_ROOT js/process.env) (js/process.cwd))
-               bin  (str root "/orgs/kotoba-lang/kagi/bin/kagi")
-               r    (try (cp/execFileSync bin
-                          #js ["get" kagi "--compartment" "personal"]
-                          #js {:encoding "utf8" :timeout 120000})
-                         (catch :default e (die (str "kagi get failed: " e))))]
+    kagi (let [r (try (cp/execFileSync (kagi-bin)
+                                       #js ["get" kagi "--compartment" "personal"]
+                                       #js {:encoding "utf8" :timeout 120000})
+                      (catch :default e (die (str "kagi get failed: " e))))]
            (str/trim-newline r))
     :else nil))
 
@@ -239,11 +255,9 @@
 (defn kagi-put!
   "Store a PEM into kagi (compartment personal). Returns kagi name."
   [name pem]
-  (let [root (or (.-FLEET_ROOT js/process.env) (js/process.cwd))
-        bin  (str root "/orgs/kotoba-lang/kagi/bin/kagi")]
-    (cp/execFileSync bin #js ["add" name "--compartment" "personal"]
-                     #js {:input pem :stdio #js ["pipe" "ignore" "inherit"] :timeout 120000})
-    name))
+  (cp/execFileSync (kagi-bin) #js ["add" name "--compartment" "personal"]
+                   #js {:input pem :stdio #js ["pipe" "ignore" "inherit"] :timeout 120000})
+  name)
 
 (defn cmd-enroll
   "Per-agent identity (⑥ hard-flip prerequisite): mint a keypair into kagi
