@@ -30,11 +30,13 @@
                     (crypto/verify nil (js/Buffer.from text "utf8") key (js/Buffer.from signature "hex")))))
     (catch :default _ false)))
 
-(defn key! [{:keys [key kagi root]}]
+(defn key! [{:keys [key kagi root kagi-command]}]
   (s/require! (not= (boolean key) (boolean kagi)) :one-key-provider-required {})
   (when kagi (s/require! (string? root) :kagi-root-required {}))
+  (when kagi-command
+    (s/require! (and kagi (string? kagi-command) (path/isAbsolute kagi-command)) :invalid-key-provider {}))
   (if key (io/read-text key)
-      (io/run [(path/join root "kotoba-lang/kagi/bin/kagi") "get" kagi "--compartment" "personal"] root)))
+      (io/run [(or kagi-command (path/join root "kotoba-lang/kagi/bin/kagi")) "get" kagi "--compartment" "personal"] root)))
 
 (defn at [repo oid file] (io/git repo "show" (str oid ":" file)))
 (defn optional-at [repo oid file]

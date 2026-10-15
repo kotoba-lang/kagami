@@ -46,6 +46,34 @@ Candidate creation requires a fresh export for the candidate inputs; a lock
 covering only the base commits is refused. Inputs contain exactly one EDN
 value, so extra trailing forms cannot be hidden after a valid record.
 
+### Operational source checkout export
+
+`bin/source-export.cljk` exports a limited channel from committed West pins:
+
+```bash
+kbb --backend sci --classpath src bin/source-export.cljk \
+  --manifest /absolute/west-manifest --at FULL_COMMIT \
+  --root /Users/junkawasaki/github --roots kotoba-lang/kagami \
+  --out /Users/junkawasaki/github/workspaces/codex/task/export
+```
+
+The versioned `:cljk-operational` profile traverses top-level `:deps` in
+committed `deps.edn` and `nbb.edn`; it excludes aliases. It records descriptor
+CIDs and exact declared Git/Maven artifacts in `export.edn`. Source checkout
+edges resolve against the captured West version set. Existing package tools
+continue selecting package artifacts; a checkout pin is not a claim that a
+package resolver selected that version. Unknown dependency forms, abbreviated
+Git OIDs, missing descriptors, unregistered repositories and unsupported
+materializations refuse the export. GitHub SSH/HTTPS transports may name the
+same owner; another host or repository is not interchangeable.
+
+Outputs are a scoped `west.yml`, registry, complete source lock and replayable
+report. `--pins MAP.edn` projects explicit full-OID overrides for a candidate;
+publication independently checks upstream reachability and forward ancestry.
+Use the same complete repository set in base and candidate exports. This
+profile does not cover test aliases, native compiler inputs or a whole-fleet
+package resolution. Channel enrollment is a separately reviewed authority step.
+
 ```text
 change --id TASK --actor ACTOR --title PURPOSE --repos org/app,org/lib --out CHANGE
 revision --change CHANGE --base BASE --changes CHANGES.edn --actor ACTOR --out REVISION
@@ -134,6 +162,9 @@ signs one owner's approval. Group completeness requires authorized coverage
 for every changed repository. REVIEW input to prepare can be one review or
 a vector aggregating independently signed reviews. Keys come from explicit
 files or Kagi and never enter records or output. Key paths are not private keys.
+The direct signing CLI accepts `--kagi-command /absolute/bin/kagi` with
+`--kagi NAME --root FOREST` for an explicitly selected clean provider checkout.
+The generic forest source tool does not accept this option or signing commands.
 
 ## Prepare, inspect, publish
 
