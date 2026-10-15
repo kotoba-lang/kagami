@@ -95,6 +95,8 @@ This writer is opt-in. The current accepted manifest commit must already hold
 `manifest/source-policy.edn`, `manifest/source-lock.edn`, a matching genpon/west
 projection and a valid signed fleet head. No policy/key/default-route activation
 is installed by the implementation.
+The v1 base head must name `fleet-db`, have a positive safe integer sequence
+and use the existing non-expiring record format (`:pin/valid-until nil`).
 
 Policy v1 has the following closed fields:
 
@@ -148,6 +150,9 @@ head and candidate resolver lock together with Snapshot/Revision/proof records i
 `refs/source/prepared/<publication-CID>` preserves object custody. It leaves
 the accepted remote ref and the occupied working checkout unchanged. Inspect
 the prepared commit with `git show` and send it through normal review/checks.
+After the first publication, use the accepted commit's
+`manifest/source-snapshot.edn` as BASE. Recapturing the same pins with a new
+manifest basis creates a different Snapshot and cannot replace that chain head.
 
 Apply treats the prepared file as untrusted: it verifies signatures, subjects,
 parent, file allowlist/digests, complete generated state and source authorities

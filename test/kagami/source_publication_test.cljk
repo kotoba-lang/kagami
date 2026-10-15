@@ -86,6 +86,20 @@
   {:manifest (:manifest f) :prepared (get-in f [:opts :out]) :root (:root f)
    :out (path/join (:root f) "workspaces/publish/receipt.edn")})
 
+(deftest a-valid-signature-for-another-head-subject-is-not-a-fleet-head
+  (let [f (fixture) repo (:manifest f) expected (:expected f) real-at pio/at
+        record (assoc (:record (pio/read-at repo expected "manifest/fleet-head.edn")) :pin/name "another-subject")
+        head {:record record :signer (get-in f [:publisher :did])
+              :signature (pio/sign (get-in f [:publisher :pem]) (pin/canonical-str record))}
+        wrong-head (fn [r oid file]
+                     (if (= file "manifest/fleet-head.edn") (pr-str head) (real-at r oid file)))
+        lock-text (io/read-text (get-in f [:opts :lock]))]
+    (is (= :base-head-invalid-or-untrusted
+           (with-redefs [pio/at wrong-head]
+             (st/reason #(pio/basis! repo expected (:base-record f) (:candidate f) (:revision-record f)
+                                    (:policy f) {:text lock-text :value (s/read-edn! lock-text)})))))
+    (is (= expected (pio/remote-head repo "origin" "refs/heads/main")))))
+
 (deftest grouped-publication-is-one-complete-commit-and-retry-is-idempotent
   (let [f (fixture) before (io/owner-state (:manifest f)) prepared (pio/prepare! (:opts f))
         repo (:manifest f) commit (:prepared/commit prepared)]
