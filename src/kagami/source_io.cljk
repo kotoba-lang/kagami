@@ -97,6 +97,14 @@
                        (str/blank? (git dest "status" "--porcelain=v1" "--untracked-files=normal")))
                    :workspace-diverged {:path dest}))
 
+(defn remote-identity [url]
+  ;; GitHub's HTTPS and SSH transports name the same repository. Other hosts
+  ;; keep their exact identity; credentials and arbitrary URL rewrites do not
+  ;; participate in this equivalence.
+  (let [url (str/replace url #"\.git$" "")]
+    (if-let [[_ id] (re-matches #"(?:https://github\.com/|ssh://git@github\.com/|git@github\.com:)([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)" url)]
+      (str "github:" (.toLowerCase id)) url)))
+
 (defn owner! [root repo]
   (let [owner (safe-child! root (path/join root (:repo/path repo)))
         _ (source/require! (fs/existsSync owner) :owner-checkout-missing {:repo (:repo/id repo)})
@@ -106,9 +114,8 @@
         _ (source/require! (= "false" (str/trim (git owner "rev-parse" "--is-shallow-repository")))
                            :shallow-owner {:repo (:repo/id repo)})
         remotes (str/split-lines (str/trim (git owner "remote")))
-        normalize #(str/replace % #"\.git$" "")
-        matching (filterv #(= (normalize (:repo/url repo))
-                              (normalize (str/trim (git owner "config" "--get" (str "remote." % ".url"))))) remotes)]
+        matching (filterv #(= (remote-identity (:repo/url repo))
+                              (remote-identity (str/trim (git owner "config" "--get" (str "remote." % ".url"))))) remotes)]
     (source/require! (= 1 (count matching)) :owner-remote-mismatch {:repo (:repo/id repo)})
     {:owner owner :remote (first matching) :before (owner-state owner)}))
 
