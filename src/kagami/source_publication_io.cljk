@@ -4,7 +4,6 @@
   (:require ["node:fs" :as fs]
             ["node:path" :as path]
             ["node:crypto" :as crypto]
-            ["node:child_process" :as cp]
             [kotoba.lang.text :as str]
             [kagami.source :as s]
             [kagami.source-io :as io]
@@ -39,8 +38,10 @@
 
 (defn at [repo oid file] (io/git repo "show" (str oid ":" file)))
 (defn optional-at [repo oid file]
-  (let [r (cp/spawnSync "git" #js ["-C" repo "cat-file" "-e" (str oid ":" file)] #js {:encoding "utf8"})]
-    (when (= 0 (.-status r)) (at repo oid file))))
+  ;; Only a successful tree lookup can establish absence. An object/transport
+  ;; failure must not turn an enrolled channel into a bootstrap candidate.
+  (when-not (empty? (io/git repo "ls-tree" "-z" oid "--" file))
+    (at repo oid file)))
 (defn read-at [repo oid file] (s/read-edn! (at repo oid file)))
 
 (defn policy-at! [repo expected]
@@ -48,13 +49,18 @@
   (let [p (pub/policy! (read-at repo expected pub/policy-path))]
     (io/git repo "check-ref-format" (:policy/ref p)) p))
 
-(defn remote-head [repo remote ref]
+(defn remote-url [repo remote]
   (s/require! (s/segment? remote) :invalid-remote {})
-  (let [url (str/trim (io/git repo "config" "--get" (str "remote." remote ".url")))
-        _ (s/require! (or (s/remote-url? url) (re-matches #"file:///[^\s]+" url)) :unsafe-remote-url {})
-        lines (str/split-lines (str/trim (io/git repo "ls-remote" "--refs" remote ref)))
+  (let [url (str/trim (io/git repo "config" "--get" (str "remote." remote ".url")))]
+    (s/require! (or (s/remote-url? url) (re-matches #"file:///[^\s]+" url)) :unsafe-remote-url {}) url))
+
+(defn head-at-url [repo url ref]
+  (s/require! (or (s/remote-url? url) (re-matches #"file:///[^\s]+" url)) :unsafe-remote-url {})
+  (let [lines (str/split-lines (str/trim (io/git repo "ls-remote" "--refs" url ref)))
         [oid actual] (when (= 1 (count lines)) (str/split (first lines) #"\s+"))]
     (s/require! (and (s/oid? oid) (= ref actual)) :remote-head-unverified {}) oid))
+
+(defn remote-head [repo remote ref] (head-at-url repo (remote-url repo remote) ref))
 
 (defn source-authorities!
   "Ask the approved source authority, never the occupied canonical checkout.
@@ -163,8 +169,8 @@
         _ (s/require! (fs/existsSync (path/join root ".west/config")) :forest-config-missing {})
         _ (io/safe-child! root (path/resolve out))
         _ (s/require! (io/inside? (path/resolve out) (path/join root "workspaces")) :report-outside-workspaces {})
-        policy (policy-at! repo expected) remote (or remote "origin")
-        _ (s/require! (= expected (remote-head repo remote (:policy/ref policy))) :stale-manifest-parent {})
+        policy (policy-at! repo expected) remote (or remote "origin") target (remote-url repo remote)
+        _ (s/require! (= expected (head-at-url repo target (:policy/ref policy))) :stale-manifest-parent {})
         base (io/read-record base) candidate (io/read-record snapshot) revision (io/read-record revision)
         lock-text (io/read-text lock) candidate-lock {:text lock-text :value (s/read-edn! lock-text)}
         evidence (io/read-edn evidence) reviews (io/read-edn reviews)
@@ -193,6 +199,7 @@
         prior (some-> (optional-at repo expected pub/publication-path) s/read-edn!)
         publication (pub/sign-publication
                      {:publication/parent (:publication/cid prior) :publication/manifest-parent expected
+                      :publication/remote-url target
                       :publication/base (:source/cid base) :publication/snapshot (:source/cid candidate)
                       :publication/revision (:source/cid revision) :publication/policy (s/value-cid policy)
                       :publication/projections (into {} (map (fn [[p t]] [p (s/content-cid t)])) state)
@@ -278,6 +285,8 @@
         parents (str/split (str/trim (io/git repo "rev-list" "--parents" "-n" "1" commit)) #"\s+")
         _ (s/require! (= [commit expected] parents) :prepared-parent-mismatch {})
         publication (pub/verify-publication! (read-at repo commit pub/publication-path) policy verify)
+        _ (s/require! (= (:publication/remote-url publication) (remote-url repo (:prepared/remote prepared)))
+                       :publication-remote-mismatch {})
         _ (s/require! (= (str "refs/source/prepared/" (:publication/cid publication)) (:prepared/custody-ref prepared))
                        :invalid-custody-reference {})
         _ (doseq [cid (concat [(:publication/base publication) (:publication/snapshot publication)
@@ -334,8 +343,8 @@
             (s/require! (io/inside? (path/resolve out) (path/join root "workspaces")) :report-outside-workspaces {}))
         prepared (io/read-edn prepared)
         {:keys [candidate revision policy publication]} (validate-prepared! repo prepared)
-        remote (:prepared/remote prepared) ref (:prepared/ref prepared) commit (:prepared/commit prepared)
-        current (remote-head repo remote ref)
+        target (:publication/remote-url publication) ref (:prepared/ref prepared) commit (:prepared/commit prepared)
+        current (head-at-url repo target ref)
         receipt {:publication/state :published :publication/cid (:publication/cid publication)
                  :snapshot/cid (:source/cid candidate) :manifest/commit commit}
         _ (when (and out (io/lexists? out))
@@ -346,11 +355,12 @@
         (s/require! (= current (:prepared/parent prepared)) :stale-manifest-parent {})
         (let [scratch (scratch! root (or out (path/join root "workspaces/source-publication/receipt.edn")) "apply-")]
           (source-authorities! revision policy scratch))
-        (try (io/git repo "push" "--porcelain" remote (str commit ":" ref))
+        ;; Push/read back the signed URL, not a mutable remote name or its pushurl.
+        (try (io/git repo "push" "--porcelain" "--no-follow-tags" "--recurse-submodules=no" target (str commit ":" ref))
              (catch :default e
                ;; An interrupted acknowledgement may follow a successful durable update.
-               (when-not (= commit (remote-head repo remote ref)) (throw e))))
-        (s/require! (= commit (remote-head repo remote ref)) :publication-readback-indeterminate {})
+               (when-not (= commit (head-at-url repo target ref)) (throw e))))
+        (s/require! (= commit (head-at-url repo target ref)) :publication-readback-indeterminate {})
         (receipt! out receipt) receipt))))
 
 (defn attest!

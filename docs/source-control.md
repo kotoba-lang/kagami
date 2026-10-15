@@ -88,6 +88,9 @@ WIP or guesses how to repair broken Git metadata. A complete operation returns
 its Snapshot-bound receipt and supports an unchanged retry.
 Materialization/resume holds an exclusive task lock. A crash lock is retained
 for explicit process/journal inspection; its age never authorizes breaking it.
+Resume also checks the factory's recorded initial config or the exact generated
+config and refuses local `.west/config` edits. Control directories/files cannot
+be symlinks; redirected projection paths are refused before writing through them.
 
 ## Group publication policy and proofs
 
@@ -162,6 +165,10 @@ Concurrent ref changes refuse without partial pin writes. A lost acknowledgement
 is recovered by remote readback. Reapplying the same currently accepted commit
 is idempotent. A published commit followed by a failed local receipt write is
 reported explicitly as published, not as an unapplied operation.
+Publication signatures also bind the selected remote URL. Apply refuses a
+prepared-file or remote-config redirect and pushes to and reads back from that
+exact URL. A separate `pushurl` cannot route the transaction to another server;
+tag following and recursive submodule pushes are disabled for this one-ref update.
 
 The transaction makes the published version set atomic. Source-repo merges
 can still be partial; consumers keep the old Snapshot until the entire group

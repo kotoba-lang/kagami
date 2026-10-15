@@ -162,7 +162,7 @@
 
 (defn verify-publication! [p policy verify-fn]
   (s/fields! p #{:publication/version :publication/signer :publication/signature :publication/cid
-                 :publication/parent :publication/manifest-parent :publication/base :publication/snapshot
+                 :publication/parent :publication/manifest-parent :publication/remote-url :publication/base :publication/snapshot
                  :publication/revision :publication/policy :publication/projections
                  :publication/evidence :publication/reviews} #{})
   (s/require! (and (= 1 (:publication/version p))

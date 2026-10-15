@@ -128,17 +128,35 @@
     (west/emit {:fleet/header header :fleet/footer "\n  self:\n    path: snapshot-manifest\n"
                 :fleet/repos (mapv :entity entries)})))
 
+(def workspace-config "[manifest]\npath = snapshot-manifest\nfile = west.yml\n")
+
+(defn workspace-controls! [root dest]
+  ;; A resumed task is an occupied workspace. Check every control destination,
+  ;; including directories, before following paths or writing generated files.
+  (doseq [relative [".west" ".west/config" ".source-workspace.edn" ".source-workspace.lock"
+                    "snapshot-manifest" "snapshot-manifest/west.yml" "snapshot-manifest/snapshot.edn"]]
+    (safe-child! root (path/join dest relative))))
+
+(defn workspace-config! [dest journal]
+  (let [file (path/join dest ".west/config")
+        digest (when (fs/existsSync file) (source/content-cid (read-text file)))]
+    (source/require! (and digest (or (= digest (:workspace/config-initial journal))
+                                     (= digest (source/content-cid workspace-config))))
+                     :workspace-control-diverged {:path file})))
+
 (defn workspace!
   [{:keys [snapshot roots root agent task out apply resume forest-command]}]
   (let [record (read-record snapshot) root (fs/realpathSync (path/resolve root))
         _ (source/require! (fs/existsSync (path/join root ".west/config")) :forest-config-missing {})
         plan (sw/plan record (str/split roots #",") {:root root :agent agent :task task})
         dest (safe-child! root (path/join root "workspaces/west" task))
+        _ (workspace-controls! root dest)
         journal-file (path/join dest ".source-workspace.edn")
         existing (when (and (= "true" resume) (fs/existsSync journal-file)) (read-edn journal-file))
         _ (source/require! (or (not (fs/existsSync dest))
                                (and existing (= plan (:workspace/plan existing))))
                            :destination-occupied {:path dest})
+        _ (when existing (workspace-config! dest existing))
         owners (into {} (map (fn [r] [(:repo/id r) (owner! root r)])) (:workspace/repos plan))
         _ (doseq [r (:workspace/repos plan)]
             (let [target (safe-child! root (path/join dest (:repo/path r)))]
@@ -153,10 +171,15 @@
         (when-not existing
           (let [factory (or forest-command (path/join root "com-junkawasaki/west-manifest/bin/forest-maintenance"))]
             (run [factory "workspace" "--root" root "--kind" "west" "--agent" agent "--task" task] root))
+          (workspace-controls! root dest)
+          (swap! journal assoc :workspace/config-initial
+                 (source/content-cid (read-text (path/join dest ".west/config"))))
           (atomic-edn! journal-file @journal))
         (with-workspace-lock! (path/join dest ".source-workspace.lock")
          (fn []
           (try
+          (workspace-controls! root dest)
+          (workspace-config! dest @journal)
           (doseq [r (:workspace/repos plan)]
             (let [{:keys [owner remote]} (owners (:repo/id r))
                   oid (get-in r [:repo/oid :hex]) target (path/join dest (:repo/path r))]
@@ -178,9 +201,8 @@
                 _ (fs/mkdirSync manifest #js {:recursive true})
                 _ (write-new! (path/join manifest "west.yml") (projection (:workspace/repos plan)))
                 _ (write-record! (path/join manifest "snapshot.edn") record)
-                config "[manifest]\npath = snapshot-manifest\nfile = west.yml\n"
                 ;; The factory created this new, task-owned config; pin it to the projection.
-                _ (fs/writeFileSync (path/join dest ".west/config") config)
+                _ (fs/writeFileSync (path/join dest ".west/config") workspace-config)
                 receipt {:workspace/version 1 :workspace/snapshot (:source/cid record)
                          :workspace/path dest :workspace/roots (:workspace/roots plan)
                          :workspace/repos (mapv #(select-keys % [:repo/id :repo/oid]) (:workspace/repos plan))

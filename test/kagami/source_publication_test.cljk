@@ -86,6 +86,15 @@
   {:manifest (:manifest f) :prepared (get-in f [:opts :out]) :root (:root f)
    :out (path/join (:root f) "workspaces/publish/receipt.edn")})
 
+(deftest optional-authority-record-absence-needs-a-successful-tree-read
+  (is (= :fixture-read-failed
+         (with-redefs [io/git (fn [& _] (throw (ex-info "unavailable" {:reason :fixture-read-failed})))]
+           (st/reason #(pio/optional-at "repo" st/old pub/snapshot-path)))))
+  (is (nil? (with-redefs [io/git (fn [& _] "")]
+              (pio/optional-at "repo" st/old pub/snapshot-path))))
+  (is (= "" (with-redefs [io/git (fn [_ command & _] (if (= command "ls-tree") "100644 blob fixture" ""))]
+              (pio/optional-at "repo" st/old pub/snapshot-path)))))
+
 (deftest a-valid-signature-for-another-head-subject-is-not-a-fleet-head
   (let [f (fixture) repo (:manifest f) expected (:expected f) real-at pio/at
         record (assoc (:record (pio/read-at repo expected "manifest/fleet-head.edn")) :pin/name "another-subject")
@@ -142,6 +151,30 @@
     (let [current (pio/remote-head repo "origin" "refs/heads/main")]
       (is (= :stale-manifest-parent (st/reason #(pio/publish! (apply-options f)))))
       (is (= current (pio/remote-head repo "origin" "refs/heads/main"))))))
+
+(deftest an-untrusted-prepared-file-cannot-redirect-the-signed-publication-target
+  (let [f (fixture) prepared (pio/prepare! (:opts f)) repo (:manifest f)
+        fork (path/join (:base f) "redirect.git")
+        _ (io/run ["git" "clone" "--bare" (:remote f) fork] (:base f))
+        _ (fixtures/git repo "remote" "add" "redirect" (str "file://" fork))
+        bad (assoc prepared :prepared/remote "redirect")
+        bad (assoc bad :prepared/cid (s/value-cid (dissoc bad :prepared/cid)))]
+    (write! (get-in f [:opts :out]) bad)
+    (is (= :publication-remote-mismatch (st/reason #(pio/publish! (apply-options f)))))
+    (is (= (:expected f) (pio/remote-head repo "origin" "refs/heads/main")))
+    (is (= (:expected f) (pio/remote-head repo "redirect" "refs/heads/main")))))
+
+(deftest pushurl-and-follow-tags-cannot-extend-the-signed-publication-target
+  (let [f (fixture) prepared (pio/prepare! (:opts f)) repo (:manifest f)
+        fork (path/join (:base f) "pushurl.git")
+        _ (io/run ["git" "clone" "--bare" (:remote f) fork] (:base f))
+        _ (fixtures/git repo "config" "remote.origin.pushurl" (str "file://" fork))
+        _ (fixtures/git repo "config" "push.followTags" "true")
+        _ (fixtures/git repo "tag" "-a" "unrequested-tag" "-m" "fixture tag" (:prepared/commit prepared))]
+    (is (= :published (:publication/state (pio/publish! (apply-options f)))))
+    (is (= (:prepared/commit prepared) (pio/remote-head repo "origin" "refs/heads/main")))
+    (is (= (:expected f) (pio/head-at-url repo (str "file://" fork) "refs/heads/main")))
+    (is (str/blank? (io/git repo "ls-remote" "--tags" (str "file://" (:remote f)))))))
 
 (deftest modified-prepared-artifact-cannot-smuggle-an-unrelated-file
   (let [f (fixture) prepared (pio/prepare! (:opts f)) repo (:manifest f)

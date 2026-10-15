@@ -99,3 +99,27 @@
     (is (= :workspace-locked (st/reason #(io/workspace! (assoc opts :resume "true")))))
     (is (fs/existsSync lock))
     (is (= "old" (io/read-text (path/join (:workspace/path receipt) "acme/app/value.txt"))))))
+
+(deftest completed-workspace-resume-preserves-local-west-config-edits
+  (let [f (fixture) opts (options f "config-edited") receipt (io/workspace! opts)
+        file (path/join (:workspace/path receipt) ".west/config")
+        edited (str (io/read-text file) "\n[local]\nkeep = true\n")]
+    (fs/writeFileSync file edited)
+    (is (= :workspace-control-diverged (st/reason #(io/workspace! (assoc opts :resume "true")))))
+    (is (= edited (io/read-text file)))))
+
+(deftest workspace-resume-refuses-redirected-control-paths
+  (let [f (fixture) opts (options f "config-link") receipt (io/workspace! opts)
+        file (path/join (:workspace/path receipt) ".west/config")
+        outside (path/join (:base f) "keep-config")]
+    (fs/writeFileSync outside "unrelated config")
+    (fs/unlinkSync file) (fs/symlinkSync outside file)
+    (is (= :path-escapes-scope (st/reason #(io/workspace! (assoc opts :resume "true")))))
+    (is (= "unrelated config" (io/read-text outside))))
+  (let [f (fixture) opts (options f "projection-link") receipt (io/workspace! opts)
+        manifest (path/join (:workspace/path receipt) "snapshot-manifest")
+        outside (path/join (:base f) "keep-manifest")]
+    (fs/renameSync manifest (str manifest "-preserved"))
+    (fs/mkdirSync outside) (fs/symlinkSync outside manifest "dir")
+    (is (= :path-escapes-scope (st/reason #(io/workspace! (assoc opts :resume "true")))))
+    (is (empty? (fs/readdirSync outside)))))
