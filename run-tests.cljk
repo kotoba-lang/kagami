@@ -2,6 +2,7 @@
 ;; kbb --backend sci --classpath src:test run-tests.cljk
 (ns run-tests
   (:require [cljs.test :refer [run-tests]]
+            [kagami.source-io]
             [kagami.core-test]
             [kagami.source-test]))
 

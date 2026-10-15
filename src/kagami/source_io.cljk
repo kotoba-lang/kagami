@@ -5,7 +5,6 @@
             ["node:path" :as path]
             ["node:child_process" :as cp]
             ["node:crypto" :as crypto]
-            [cljs.reader :as reader]
             [kotoba.lang.text :as str]
             [multiformats.core :as mf]
             [kagami.source :as source]
@@ -31,7 +30,7 @@
 
 (defn git [repo & args] (run (into ["git" "--no-replace-objects" "-c" "core.fsmonitor=false" "-C" repo] args) repo))
 (defn read-text [file] (fs/readFileSync file "utf8"))
-(defn read-edn [file] (reader/read-string (read-text file)))
+(defn read-edn [file] (source/read-edn! (read-text file)))
 (defn read-record [file] (source/verify! (read-edn file)))
 
 (defn write-new!
@@ -212,7 +211,7 @@
         (write-record! (:out o)
           (source/from-west (git repo "show" (str at ":manifest/west.yml"))
                             (git repo "show" (str at ":manifest/repos.edn"))
-                            at lock-text (reader/read-string lock-text))))
+                            at lock-text (source/read-edn! lock-text))))
       "revision"
       (let [o (needed! (options args #{:change :base :changes :actor :parent :out})
                        [:change :base :changes :actor :out])
@@ -228,8 +227,10 @@
              :revision/base (:source/cid base) :revision/parent (:source/cid parent)
              :revision/actor (:actor o) :revision/changes (read-edn (:changes o)) :revision/op-heads []})))
       "candidate"
-      (let [o (needed! (options args #{:base :revision :out}) [:base :revision :out])]
-        (write-record! (:out o) (source/candidate (read-record (:base o)) (read-record (:revision o)))))
+      (let [o (needed! (options args #{:base :revision :lock :out}) [:base :revision :lock :out])
+            text (read-text (:lock o))]
+        (write-record! (:out o) (source/candidate (read-record (:base o)) (read-record (:revision o))
+                                                {:text text :value (source/read-edn! text)})))
       "workspace"
       (workspace! (needed! (options args #{:snapshot :roots :root :agent :task :out :apply :resume :forest-command})
                             [:snapshot :roots :root :agent :task]))

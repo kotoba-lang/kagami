@@ -3,6 +3,7 @@
    and closure planning; existing CLJK operational runtime, not Q9 qualification.
    The owner resolver supplies the lock/graph. No package resolution happens here."
   (:require [kotoba.bytes :as bytes]
+            [kotoba.lang.edn :as edn]
             [kotoba.lang.text :as str]
             [multiformats.core :as mf]
             [kagami.west :as west]))
@@ -38,6 +39,10 @@
 (defn text! [s]
   (require! (and (string? s) (not (str/blank? s)) (<= (count s) 8192))
             :invalid-text {}) s)
+
+(defn read-edn! [text]
+  (let [values (edn/read-string (str "[" text "\n]"))]
+    (require! (= 1 (count values)) :one-edn-value-required {}) (first values)))
 
 (defn unique-vector! [v pred]
   (require! (and (vector? v) (= (count v) (count (set v))) (every? pred v))
@@ -144,18 +149,29 @@
                      (= (:revision/old item) (:repo/oid (by-id (:repo/id item)))))
                 :revision-scope-or-old-mismatch {:repo (:repo/id item)})) r))
 
-(defn candidate [base revision]
+(defn lock! [repos lock-text lock]
+  (fields! lock #{:lock/version :lock/resolver :lock/complete? :lock/dependencies :lock/revisions} #{})
+  (require! (and (= lock (read-edn! lock-text)) (= 1 (:lock/version lock))
+                 (true? (:lock/complete? lock)) (cid? (:lock/resolver lock))) :unverified-resolver-lock {})
+  (require! (= (:lock/revisions lock) (into {} (map (fn [r] [(:repo/id r) (get-in r [:repo/oid :hex])])) repos))
+            :resolver-input-revisions-mismatch {})
+  (let [ids (set (map :repo/id repos)) graph (:lock/dependencies lock)]
+    (require! (and (map? graph) (= ids (set (keys graph)))) :incomplete-dependency-graph {})
+    (doseq [[_ deps] graph] (unique-vector! deps ids))) lock)
+
+(defn candidate [base revision {:keys [text value]}]
   (let [b (kind! base :snapshot) r (kind! revision :revision)
         changes (into {} (map (juxt :repo/id identity)) (:revision/changes r))
-        by-id (into {} (map (juxt :repo/id identity)) (:snapshot/repos b))]
+        by-id (into {} (map (juxt :repo/id identity)) (:snapshot/repos b))
+        repos (mapv #(if-let [c (changes (:repo/id %))] (assoc % :repo/oid (:revision/new c)) %) (:snapshot/repos b))]
     (require! (= (:source/cid base) (:revision/base r)) :revision-base-mismatch {})
     (doseq [[id c] changes]
       (require! (= (:revision/old c) (:repo/oid (by-id id))) :revision-old-mismatch {:repo id}))
+    (lock! repos text value)
     (record :snapshot
             (assoc b :snapshot/parent (:source/cid base)
-                   :snapshot/repos (mapv #(if-let [c (changes (:repo/id %))]
-                                           (assoc % :repo/oid (:revision/new c)) %)
-                                        (:snapshot/repos b))))))
+                   :snapshot/lock (content-cid text) :snapshot/graph (:lock/dependencies value)
+                   :snapshot/repos repos))))
 
 (defn closure [snapshot roots]
   (let [s (kind! snapshot :snapshot) graph (:snapshot/graph s)]
@@ -170,15 +186,12 @@
 (defn from-west
   "Capture exact west bytes plus an owner resolver lock. The lock is a boundary
    format: {:lock/version 1 :lock/resolver <CID> :lock/complete? true
-            :lock/dependencies {canonical-repo-id [dependency-id ...]}}."
+            :lock/dependencies {canonical-repo-id [dependency-id ...]}
+            :lock/revisions {canonical-repo-id full-git-oid}}."
   [west-text registry-text basis lock-text lock]
-  (fields! lock #{:lock/version :lock/resolver :lock/complete? :lock/dependencies} #{})
-  (require! (and (= 1 (:lock/version lock)) (true? (:lock/complete? lock))
-                 (cid? (:lock/resolver lock))) :unverified-resolver-lock {})
   (let [db (west/parse west-text)]
     (require! (= west-text (west/emit db)) :projection-not-byte-exact {})
-    (record :snapshot
-            {:snapshot/parent nil :snapshot/basis basis
+    (let [value {:snapshot/parent nil :snapshot/basis basis
              :snapshot/registry (content-cid registry-text) :snapshot/lock (content-cid lock-text)
              :snapshot/graph (:lock/dependencies lock)
              :snapshot/repos
@@ -190,4 +203,6 @@
                         :repo/materialization
                         (cond (get-in e [:repo/userdata :datalad]) :datalad
                               (or (:repo/submodules? e) (seq (:repo/submodule-paths e))) :submodules
-                              :else :git)})) (:fleet/repos db))})))
+                              :else :git)})) (:fleet/repos db))}]
+      (lock! (:snapshot/repos value) lock-text lock)
+      (record :snapshot value))))

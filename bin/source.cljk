@@ -1,5 +1,5 @@
 #!/usr/bin/env kbb
-(ns source.cli (:require [kagami.source-io :as source]))
+(ns source.cli (:require [kagami.source-cli :as source]))
 (try
   (println (pr-str (source/main (vec *command-line-args*))))
   (catch :default e

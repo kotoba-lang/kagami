@@ -25,6 +25,20 @@
 (defn reason [f]
   (try (f) nil (catch #?(:clj Exception :cljs :default) e (:reason (ex-data e)))))
 
+(defn lock-value [snapshot]
+  {:lock/version 1 :lock/resolver digest :lock/complete? true
+   :lock/dependencies (get-in snapshot [:source/value :snapshot/graph])
+   :lock/revisions (into {} (map (fn [r] [(:repo/id r) (get-in r [:repo/oid :hex])]))
+                         (get-in snapshot [:source/value :snapshot/repos]))})
+
+(defn lock-for [base revision]
+  (let [changes (into {} (map (juxt :repo/id :revision/new)) (get-in revision [:source/value :revision/changes]))
+        value (update (lock-value base) :lock/revisions
+                      #(reduce-kv (fn [m id oid] (assoc m id (:hex oid))) % changes))]
+    {:text (str (pr-str value) "\n") :value value}))
+
+(defn candidate [base revision] (s/candidate base revision (lock-for base revision)))
+
 (deftest immutable-identities-and-substitution
   (is (s/cid? digest))
   (is (= (s/value-cid {:a 1 :b [2 3]}) (s/value-cid (array-map :b [2 3] :a 1))))
@@ -51,11 +65,19 @@
          (reason #(s/record :snapshot (assoc-in base-value [:snapshot/repos 0 :repo/oid :hex] "abc"))))))
 
 (deftest revisions-bind-exact-base-and-scope
-  (let [r (s/make-revision change base revision-value) candidate (s/candidate base r)]
+  (let [r (s/make-revision change base revision-value) candidate (candidate base r)]
     (is (= (:source/cid base) (get-in candidate [:source/value :snapshot/parent])))
     (is (= new (get-in candidate [:source/value :snapshot/repos 1 :repo/oid :hex])))
     (is (= old (get-in candidate [:source/value :snapshot/repos 0 :repo/oid :hex])))
     (is (= :revision-scope-or-old-mismatch
            (reason #(s/make-revision change base (assoc-in revision-value [:revision/changes 0 :revision/old :hex] (apply str (repeat 40 "c")))))))
     (is (= :revision-base-mismatch
-           (reason #(s/candidate candidate r))))))
+           (reason #(kagami.source-test/candidate candidate r))))))
+
+(deftest resolver-locks-name-the-exact-candidate-inputs
+  (let [r (s/make-revision change base revision-value) lock (lock-for base r)]
+    (is (= :resolver-input-revisions-mismatch
+           (reason #(s/candidate base r {:text (pr-str (lock-value base)) :value (lock-value base)}))))
+    (is (= :one-edn-value-required (reason #(s/read-edn! "{} {}"))))
+    (is (= :unverified-resolver-lock
+           (reason #(s/candidate base r (assoc lock :text (pr-str {}))))))))
