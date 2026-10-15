@@ -1,5 +1,10 @@
 # kagami
 
+Agent Change/Revision/Snapshot contracts, fixed-Snapshot workspaces and the
+opt-in grouped publication CLI are documented in [source control](docs/source-control.md).
+The existing fleet commands and west-manifest authority remain the operational
+integration boundary (ADR-2610151430).
+
 `kagami` is the **mirror** that projects **原本 (genpon)** — the pin registry
 for this west-managed workspace — onto `manifest/west.yml`. If you are looking
 for the `{repo → pin SHA}` book, that original is `manifest/fleet-db.edn` in
