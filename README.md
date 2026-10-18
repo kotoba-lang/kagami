@@ -51,6 +51,11 @@ kbb --backend sci --classpath src bin/fleet.cljs list --db fleet-db.edn --org ko
 kbb --backend sci --classpath src bin/fleet.cljs pin-advance --db fleet-db.edn --repo kotoba --new <sha>
 ```
 
+`reconcile --only-repos <name,...>` absorbs pin changes or removals for the
+named existing repositories and leaves unrelated projection drift untouched.
+It rejects repository additions and selected repository metadata edits; use
+the registration or grouped publication writer for those changes.
+
 ## Tests
 
 （agent 提案の実例: この節見出し直下の一行は governed land-back の dogfood で追加された）
