@@ -923,8 +923,8 @@
                      (keep (fn [entry]
                              (if (contains? names (:repo/name entry))
                                (get new-by-name (:repo/name entry))
-                               entry)))
-                     repos))]))
+                               entry))
+                           repos))))]))
 
 (defn cmd-reconcile
   "Absorb legacy-path (gen --entry / API single-entry) west.yml writes into
@@ -952,7 +952,7 @@
         enforce-diff (cond
                        enforce-repos (db/scope-diff-repos full-diff (str/split enforce-repos #","))
                        enforce-orgs (db/scope-diff full-diff d-new (set (str/split enforce-orgs #",")))
-                       :else full-diff)
+                       :else full-diff)]
     (if-not (db/drift? diff)
       (println (if only-repos
                  (str "clean: selected repos in projection of " west)
