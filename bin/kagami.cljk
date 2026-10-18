@@ -889,18 +889,61 @@
 ;; ---------------------------------------------------------------------------
 ;; Phase 1.5 reconcile + Phase 3a signed fleet head
 
+(defn- scoped-reconcile-target
+  "Build a targeted reconcile for named existing repos. This intentionally
+  keeps unrelated projection drift in the old database. Entry additions and
+  non-pin metadata edits need a separate writer and are rejected here."
+  [d-old d-new full-diff only-repos]
+  (let [names (if (string? only-repos)
+                (->> (str/split only-repos #",")
+                     (map str/trim)
+                     (remove str/blank?)
+                     set)
+                #{})
+        old-by-name (into {} (map (juxt :repo/name identity)) (:fleet/repos d-old))
+        new-by-name (into {} (map (juxt :repo/name identity)) (:fleet/repos d-new))
+        diff (db/scope-diff-repos full-diff names)
+        metadata-drift? (some (fn [name]
+                               (let [old (old-by-name name)
+                                     new (new-by-name name)]
+                                 (and old new
+                                      (not= (dissoc old :repo/revision)
+                                            (dissoc new :repo/revision)))))
+                             names)]
+    (when (empty? names)
+      (die "--only-repos needs at least one comma-separated repo name"))
+    (when (seq (:added diff))
+      (die "--only-repos does not admit repo additions; use the registration writer"))
+    (when metadata-drift?
+      (die "--only-repos handles pin changes and removals only; selected repo metadata changed"))
+    [diff
+     (update d-old :fleet/repos
+             (fn [repos]
+               (into []
+                     (keep (fn [entry]
+                             (if (contains? names (:repo/name entry))
+                               (get new-by-name (:repo/name entry))
+                               entry)))
+                     repos))]))
+
 (defn cmd-reconcile
   "Absorb legacy-path (gen --entry / API single-entry) west.yml writes into
   fleet-db as attributed ledger events. --check: exit 1 on drift, write
   nothing. --enforce: the HARD-FLIP switch — drift is a REJECTION, not an
   absorption (legacy writes forbidden; fleet-db is the sole writer). Flip
-  the CI to --enforce only after every writer session is enrolled."
-  [{:keys [db west check enforce enforce-orgs enforce-repos]}]
-  (when-not (and db west) (die "reconcile needs --db --west [--check|--enforce] [--enforce-orgs a,b] [--enforce-repos a,b]"))
+  the CI to --enforce only after every writer session is enrolled. --only-repos
+  scopes a legacy pin/removal reconcile and preserves drift outside that set."
+  [{:keys [db west check enforce enforce-orgs enforce-repos only-repos]}]
+  (when-not (and db west) (die "reconcile needs --db --west [--check|--enforce] [--enforce-orgs a,b] [--enforce-repos a,b] [--only-repos a,b]"))
+  (when (and only-repos (or enforce enforce-orgs enforce-repos))
+    (die "--only-repos cannot be combined with enforce options"))
   (when-not (or check enforce) (lock-db! db))
   (let [d-old (load-db db)
         d-new (west/parse (slurp* west))
         full-diff (db/diff-dbs d-old d-new)
+        [diff d-apply] (if only-repos
+                         (scoped-reconcile-target d-old d-new full-diff only-repos)
+                         [full-diff d-new])
         ;; staged hard flip (D): tightest -> widest scope.
         ;; --enforce-repos: only these named repos (the fleet's own signed-path
         ;;   repos — safe first activation, breaks no legacy session).
@@ -910,9 +953,10 @@
                        enforce-repos (db/scope-diff-repos full-diff (str/split enforce-repos #","))
                        enforce-orgs (db/scope-diff full-diff d-new (set (str/split enforce-orgs #",")))
                        :else full-diff)
-        diff full-diff]
     (if-not (db/drift? diff)
-      (println "clean: fleet-db == projection of" west)
+      (println (if only-repos
+                 (str "clean: selected repos in projection of " west)
+                 (str "clean: fleet-db == projection of " west)))
       (let [summary {:changed (count (:changed diff)) :added (count (:added diff))
                      :removed (count (:removed diff)) :meta (:meta-changed? diff)}]
         (when (and (or enforce enforce-orgs enforce-repos) (db/drift? enforce-diff))
@@ -934,7 +978,7 @@
                 ledger  (load-ledger ledgerf)
                 evs     (db/reconcile-events ledger diff (.toISOString (js/Date.)))]
             (doseq [ev evs] (fs/appendFileSync ledgerf (str (pr-str ev) "\n")))
-            (spit* db (pr-str d-new))
+            (spit* db (pr-str d-apply))
             (println "reconciled:" (pr-str summary) "->" (count evs) "ledger event(s)")))))))
 
 (defn cmd-head
